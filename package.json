@@ -23,7 +23,7 @@
 	"scripts": {
 		"build": "tsc",
 		"typecheck": "tsc --noEmit",
-		"test": "tsx test/renderer.ts && tsx test/lifecycle.ts",
+		"test": "tsx test/renderer.ts && tsx test/lifecycle.ts && tsx test/islands.ts",
 		"lint": "biome check .",
 		"format": "biome format --write ."
 	},

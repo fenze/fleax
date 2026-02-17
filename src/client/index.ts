@@ -1,2 +1,2 @@
 export { mount, unmount } from "./dom.js";
-export { hydrate } from "./hydrate.js";
+export { defineIsland, initIsland } from "./island.js";
