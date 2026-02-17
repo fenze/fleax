@@ -1,0 +1,45 @@
+{
+	"name": "fleax",
+	"version": "1.0.1",
+	"description": "A tiny, zero-dependency TSX-to-HTML compiler library",
+	"license": "MIT",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": "./dist/index.js",
+		"./server": "./dist/server.js",
+		"./dom": "./dist/dom.js",
+		"./jsx-runtime": "./dist/jsx-runtime.js"
+	},
+	"files": [
+		"dist",
+		"bin"
+	],
+	"bin": {
+		"fleax": "bin/cli.js"
+	},
+	"scripts": {
+		"build": "tsc",
+		"typecheck": "tsc --noEmit",
+		"test": "tsx test/renderer.ts && tsx test/lifecycle.ts",
+		"lint": "biome check .",
+		"format": "biome format --write ."
+	},
+	"keywords": [
+		"tsx",
+		"jsx",
+		"ssr",
+		"html",
+		"compiler",
+		"reactive",
+		"signals"
+	],
+	"devDependencies": {
+		"@biomejs/biome": "^2.4.2",
+		"@types/node": "^25.2.3",
+		"ts-node": "^10.9.1",
+		"tsx": "^4.21.0",
+		"typescript": "^5.2.2"
+	}
+}
