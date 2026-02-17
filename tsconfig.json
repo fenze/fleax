@@ -1,0 +1,17 @@
+{
+	"compilerOptions": {
+		"target": "ESNext",
+		"module": "ESNext",
+		"jsx": "react-jsx",
+		"jsxImportSource": "fleax",
+		"strict": true,
+		"esModuleInterop": true,
+		"moduleResolution": "bundler",
+		"rootDir": "src",
+		"outDir": "dist",
+		"declaration": true,
+		"removeComments": true,
+		"skipLibCheck": true
+	},
+	"include": ["src/**/*"]
+}

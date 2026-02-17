@@ -8,8 +8,9 @@
 	"types": "./dist/index.d.ts",
 	"exports": {
 		".": "./dist/index.js",
-		"./server": "./dist/server.js",
-		"./dom": "./dist/dom.js",
+		"./core": "./dist/core/index.js",
+		"./ssg": "./dist/ssg/index.js",
+		"./client": "./dist/client/index.js",
 		"./jsx-runtime": "./dist/jsx-runtime.js"
 	},
 	"files": [
