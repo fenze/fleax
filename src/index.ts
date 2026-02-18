@@ -1,14 +1,3 @@
-export {
-	computed,
-	createContext,
-	effect,
-	Fragment,
-	jsx,
-	jsxs,
-	onCleanup,
-	onMount,
-	type Ref,
-	ref,
-	useContext,
-	type VNode,
-} from "./core/index.js";
+export { getIslands, Island, resetIslands } from "./island.js";
+export { Fragment, jsx, jsxs, type VNode } from "./jsx.js";
+export { renderToString } from "./render.js";

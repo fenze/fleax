@@ -1,10 +1,5 @@
-import { jsx } from "../src/index.js";
-import {
-	getIslands,
-	Island,
-	renderToString,
-	resetIslands,
-} from "../src/ssg/index.js";
+import { Island, jsx, renderToString } from "../src/index.js";
+import { getIslands, resetIslands } from "../src/island.js";
 
 const test = (name: string, result: string, expected: string) => {
 	if (result === expected) {
@@ -18,7 +13,6 @@ const test = (name: string, result: string, expected: string) => {
 
 console.log("--- Testing Islands ---");
 
-// 1. Basic island
 resetIslands();
 const island1 = renderToString(
 	Island({
@@ -32,7 +26,6 @@ test(
 	'<div data-island="./counter.ts" data-island-id="island-1"><button>Click me</button></div>',
 );
 
-// 2. Multiple islands
 resetIslands();
 const islands2 = renderToString(
 	jsx("div", {
@@ -52,7 +45,32 @@ const hasCounter = islands2.includes('data-island="./counter.ts"');
 const hasToggle = islands2.includes('data-island="./toggle.ts"');
 test("Multiple islands render", hasCounter && hasToggle ? "ok" : "fail", "ok");
 
-// 3. Island registry
+resetIslands();
+const duplicateIslands = renderToString(
+	jsx("div", {
+		children: [
+			Island({
+				src: "./counter.ts",
+				children: jsx("button", { children: "A" }),
+			}),
+			Island({
+				src: "./counter.ts",
+				children: jsx("button", { children: "B" }),
+			}),
+		],
+	}),
+);
+const duplicateCount = (
+	duplicateIslands.match(
+		/data-island="\.\.\/counter\.ts"|data-island="\.\/counter\.ts"/g,
+	) || []
+).length;
+test(
+	"Duplicate island instances render",
+	duplicateCount === 2 ? "ok" : "fail",
+	"ok",
+);
+
 resetIslands();
 renderToString(
 	jsx("div", {
@@ -70,18 +88,18 @@ test(
 	"2 islands",
 );
 
-// 4. Custom island ID
 resetIslands();
 const island4 = renderToString(
 	Island({
-		src: "./counter.ts",
-		id: "my-counter",
+		src: "@/components/custom-counter.ts",
 		children: jsx("button", { children: "0" }),
 	}),
 );
 test(
-	"Custom island ID",
-	island4.includes('data-island-id="my-counter"') ? "ok" : "fail",
+	"Custom island source",
+	island4.includes('data-island="@/components/custom-counter.ts"')
+		? "ok"
+		: "fail",
 	"ok",
 );
 
