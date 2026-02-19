@@ -23,7 +23,7 @@ export default async (root: HTMLElement) => {
 	const tbody = table.querySelector("tbody");
 	if (!tbody) return;
 
-	let rowHeight = parseInt(container.dataset.rowHeight || "48");
+	let rowHeight = parseInt(container.dataset.rowHeight || "48", 10);
 	const firstRow = tbody.querySelector("tr");
 	if (firstRow) {
 		const measured = firstRow.offsetHeight;
@@ -137,9 +137,11 @@ export default async (root: HTMLElement) => {
 		) {
 			const colId =
 				header.dataset.colId ||
-				String(Array.from(header.parentElement!.children).indexOf(header));
+				String(Array.from(header.parentElement?.children).indexOf(header));
 			const dir = header.dataset.sortDir === "asc" ? "desc" : "asc";
-			table.querySelectorAll("th").forEach((th) => delete th.dataset.sortDir);
+			table.querySelectorAll("th").forEach((th) => {
+				delete th.dataset.sortDir;
+			});
 			header.dataset.sortDir = dir;
 
 			if (isVirtual) {
@@ -147,7 +149,7 @@ export default async (root: HTMLElement) => {
 				const actualId =
 					first[colId] !== undefined
 						? colId
-						: Object.keys(first)[parseInt(colId)];
+						: Object.keys(first)[parseInt(colId, 10)];
 				allData.sort((a, b) => {
 					const vA = a.sortValues[actualId],
 						vB = b.sortValues[actualId];

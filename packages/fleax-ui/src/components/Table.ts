@@ -1,5 +1,5 @@
-import { Island, jsx, renderToString } from "@fleax/core";
 import * as zlib from "node:zlib";
+import { Island, jsx, renderToString } from "@fleax/core";
 import {
 	type Column,
 	getTableModel,
@@ -112,7 +112,7 @@ export const Table = <T>({
 
 	const containerStyle = [
 		height
-			? `height: ${typeof height === "number" ? height + "px" : height}`
+			? `height: ${typeof height === "number" ? `${height}px` : height}`
 			: "",
 		`--fleax-row-height: ${rowHeight}px`,
 		"overflow: auto",
