@@ -14,6 +14,12 @@ A tiny SSG framework with Islands architecture. Zero runtime dependencies.
 - **Incremental builds** with dependency-aware caching
 - **Live reload** with `serve --hot`
 
+## Documentation
+
+- [**Guide**](./docs/guide.md) - Learn how Fleax works and how to use the CLI.
+- [**API Reference**](./docs/api.md) - Detailed documentation for core components and functions.
+- [**UI Components**](./packages/fleax-ui/docs/index.md) - Documentation for the optional `@fleax/ui` package.
+
 ## Installation
 
 ```bash
