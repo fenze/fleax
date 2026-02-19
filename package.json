@@ -1,6 +1,6 @@
 {
-	"name": "fleax",
-	"version": "1.0.4",
+	"name": "@fleax/core",
+	"version": "1.1.0",
 	"description": "A tiny, zero-dependency TSX-to-HTML compiler library",
 	"license": "MIT",
 	"type": "module",
@@ -8,9 +8,6 @@
 	"types": "./dist/index.d.ts",
 	"exports": {
 		".": "./dist/index.js",
-		"./core": "./dist/core/index.js",
-		"./ssg": "./dist/ssg/index.js",
-		"./client": "./dist/client/index.js",
 		"./jsx-runtime": "./dist/jsx-runtime.js"
 	},
 	"files": [
@@ -20,22 +17,32 @@
 	"bin": {
 		"fleax": "bin/cli.js"
 	},
+	"workspaces": [
+		"packages/*"
+	],
 	"scripts": {
 		"build": "tsc",
+		"build:ui": "npm run -w @fleax/ui build",
+		"build:all": "npm run build && npm run build:ui",
 		"typecheck": "tsc --noEmit",
-		"test": "tsx test/renderer.ts && tsx test/lifecycle.ts && tsx test/islands.ts",
+		"typecheck:ui": "npm run -w @fleax/ui typecheck",
+		"test": "tsx test/renderer.ts && tsx test/islands.ts",
 		"lint": "biome check .",
 		"format": "biome format --write ."
 	},
 	"keywords": [
 		"tsx",
 		"jsx",
-		"ssr",
+		"ssg",
 		"html",
-		"compiler",
-		"reactive",
-		"signals"
+		"islands"
 	],
+	"dependencies": {
+		"brotli": "^1.3.3",
+		"esbuild": "^0.27.3",
+		"google-closure-compiler": "^20260216.0.0",
+		"lightningcss": "^1.31.1"
+	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.2",
 		"@types/node": "^25.2.3",

@@ -1,0 +1,137 @@
+@layer components {
+	.fx-button {
+		background-clip: padding-box;
+		background-color: var(--color-primary-background);
+		border-radius: var(--radius);
+		border: 1px solid transparent;
+		color: var(--color-primary-foreground);
+		font-size: var(--font-size-default);
+		height: 32px;
+		min-width: 32px;
+		line-height: 1.42857;
+		padding-inline: calc(var(--spacing) * 2.5);
+		text-box: trim-both cap alphabetic;
+		font-weight: var(--font-weight-medium);
+		user-select: none;
+		transition:
+			background-color 0.15s cubic-bezier(0.4, 0, 0.2, 1),
+			border-color 0.15s cubic-bezier(0.4, 0, 0.2, 1),
+			box-shadow 0.15s cubic-bezier(0.4, 0, 0.2, 1),
+			color 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+	}
+
+	.fx-button:focus-visible {
+		outline: none;
+		border-color: var(--color-ring);
+		box-shadow: 0 0 0 3px
+			color-mix(in oklab, var(--color-ring) 50%, transparent);
+	}
+
+	.fx-button:hover {
+		background: color-mix(
+			in oklab,
+			var(--color-primary-background) 90%,
+			transparent
+		);
+	}
+
+	/* Button::secondary*/
+
+	.fx-button-secondary {
+		background: var(--color-secondary-background);
+		color: var(--color-secondary-foreground);
+	}
+
+	.fx-button-secondary:focus-visible {
+		border: 1px solid var(--color-ring);
+	}
+
+	.fx-button-secondary:hover {
+		background: color-mix(
+			in oklab,
+			var(--color-secondary-background) 80%,
+			transparent
+		);
+	}
+
+	/* Button::outline*/
+
+	.fx-button-outline {
+		background: color-mix(in oklab, var(--color-input) 30%, transparent);
+		border: 1px solid var(--color-input);
+		color: inherit;
+	}
+
+	.fx-button-outline:hover {
+		background: color-mix(in oklab, var(--color-input) 50%, transparent);
+	}
+
+	/* Button::ghost */
+
+	.fx-button-ghost {
+		background: inherit;
+		color: inherit;
+	}
+
+	.fx-button-ghost:hover {
+		background: var(--color-muted-background);
+	}
+
+	/* Button::destructive */
+
+	.fx-button-destructive {
+		background: light-dark(
+			color-mix(in oklab, var(--color-destructive) 10%, transparent),
+			color-mix(in oklab, var(--color-destructive) 20%, transparent)
+		);
+		color: var(--color-destructive);
+	}
+
+	.fx-button-destructive:hover {
+		background: light-dark(
+			color-mix(in oklab, var(--color-destructive) 20%, transparent),
+			color-mix(in oklab, var(--color-destructive) 30%, transparent)
+		);
+	}
+
+	.fx-button-link {
+		background: transparent;
+		color: var(--color-foreground);
+		cursor: pointer;
+	}
+
+	.fx-button-link:hover {
+		background: transparent;
+		text-decoration: underline;
+		text-underline-offset: 5px;
+	}
+
+	/* Sizes */
+	.fx-button-xs {
+		height: 24px;
+		min-width: 24px;
+		font-size: 0.75rem;
+		line-height: 1.33333;
+		border-radius: 0.5rem;
+	}
+
+	.fx-button-sm {
+		height: 28px;
+		min-width: 28px;
+		font-size: 0.8rem;
+		line-height: 1.42857;
+		border-radius: 0.5rem;
+	}
+
+	.fx-button-lg {
+		height: 36px;
+		min-width: 38px;
+		line-height: 1.42857;
+	}
+
+	/* Other */
+
+	.fx-button.rounded-full {
+		border-radius: 3.40282e38px;
+	}
+}

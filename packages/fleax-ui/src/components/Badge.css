@@ -1,0 +1,32 @@
+@layer components {
+	.fx-badge {
+		padding-inline: calc(var(--spacing) * 2);
+		padding-block: calc(var(--spacing) * 0.25);
+		background: var(--color-primary-background);
+		color: var(--color-primary-foreground);
+		border-radius: 3.40282e38px;
+		font-weight: var(--font-weight-medium);
+		font-size: var(--font-size-xsmall);
+		user-select: none;
+	}
+
+	.fx-badge.secondary {
+		background: var(--color-secondary-background);
+		color: var(--color-secondary-foreground);
+	}
+
+	.fx-badge.destructive {
+		background: light-dark(
+			color-mix(in oklab, var(--color-destructive) 10%, transparent),
+			color-mix(in oklab, var(--color-destructive) 20%, transparent)
+		);
+		color: var(--color-destructive);
+	}
+
+	.fx-badge.outline {
+		background: color-mix(in oklab, var(--color-input) 20%, transparent);
+		outline: 1px solid var(--color-input);
+		color: inherit;
+		margin: 1px;
+	}
+}

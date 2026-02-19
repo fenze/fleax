@@ -1,0 +1,64 @@
+@layer components {
+	.fx-input {
+		background: color-mix(in oklab, var(--color-input) 30%, transparent);
+		border: 1px solid var(--color-input);
+		color: inherit;
+		padding-block: var(--spacing);
+		padding-inline: calc(var(--spacing) * 2.5);
+		line-height: 1.42857;
+		height: 32px;
+		font-size: var(--font-size-default);
+		border-radius: var(--radius);
+		background-clip: padding-box;
+		transition:
+			background-color 0.15s cubic-bezier(0.4, 0, 0.2, 1),
+			border-color 0.15s cubic-bezier(0.4, 0, 0.2, 1),
+			box-shadow 0.15s cubic-bezier(0.4, 0, 0.2, 1),
+			color 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+	}
+
+	.fx-input::placeholder {
+		color: var(--color-muted-foreground);
+	}
+
+	.fx-input:focus {
+		outline: none;
+		border-color: var(--color-ring);
+		box-shadow: 0 0 0 3px
+			color-mix(in oklab, var(--color-ring) 50%, transparent);
+	}
+
+	.fx-input:disabled {
+		background: color-mix(in oklab, var(--color-input) 80%, transparent);
+		opacity: 0.5;
+	}
+
+	.fx-input[aria-invalid="true"],
+	.fx-input:user-invalid {
+		color: var(--color-destructive);
+		border-color: color-mix(
+			in oklab,
+			var(--color-destructive) 50%,
+			transparent
+		);
+		box-shadow: 0 0 0 3px
+			color-mix(in oklab, var(--color-destructive) 40%, transparent);
+	}
+
+	.fx-input[type="file"] {
+		display: flex;
+		color: lab(84.92 0 -0.0000119209);
+		text-align: right;
+	}
+
+	.fx-input[type="file"]::file-selector-button {
+		color: var(--color-foreground);
+		background: transparent;
+		border: none;
+		margin: 0;
+		padding: 0;
+		margin-right: calc(var(--spacing) * 2);
+		line-height: 1.65;
+		font-weight: var(--font-weight-medium);
+	}
+}

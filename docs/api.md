@@ -5,7 +5,7 @@
 Wraps children in a container that gets hydrated by an island script.
 
 ```tsx
-<Island src="@/components/counter.ts" id="optional-id">
+<Island src="@/islands/counter.ts" id="optional-id">
   <button>Click me</button>
 </Island>
 ```
@@ -17,7 +17,7 @@ Wraps children in a container that gets hydrated by an island script.
 
 **Output:**
 ```html
-<div data-island="@/components/counter.ts" data-island-id="island-1">
+<div class="__96f4f26a">
   <button>Click me</button>
 </div>
 <script src="/islands/counter.js"></script>
@@ -27,9 +27,9 @@ If multiple `Island` components use the same `src`, all matching wrappers are hy
 
 **Island file pattern:**
 ```ts
-// src/components/counter.ts
+// src/islands/counter.ts
 export default (el: Element) => {
-  // el is the wrapper div with data-island attribute
+  // el is the wrapper div rendered by <Island>
   const btn = el.querySelector("button")!;
   btn.onclick = () => console.log("clicked");
 };
@@ -40,7 +40,7 @@ export default (el: Element) => {
 Converts a VNode to HTML string.
 
 ```ts
-import { renderToString, jsx } from "fleax";
+import { renderToString, jsx } from "@fleax/core";
 
 const html = renderToString(
   jsx("div", { class: "container", children: "Hello" })
@@ -89,4 +89,25 @@ type VNode = {
   props: Record<string, unknown>;
   key?: string | number;
 };
+```
+
+## `@fleax/ui` (Optional)
+
+```ts
+import { Button, Card, CardBody, CardTitle } from "@fleax/ui";
+```
+
+```tsx
+<Card>
+  <CardTitle>Title</CardTitle>
+  <CardBody>Body</CardBody>
+</Card>
+<Button variant="outline">Action</Button>
+```
+
+Component CSS is imported automatically.  
+Optional aggregate stylesheet:
+
+```ts
+import "@fleax/ui/styles.css";
 ```

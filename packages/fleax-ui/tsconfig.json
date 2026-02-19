@@ -2,8 +2,6 @@
 	"compilerOptions": {
 		"target": "ESNext",
 		"module": "ESNext",
-		"jsx": "react-jsx",
-		"jsxImportSource": "@fleax/core",
 		"strict": true,
 		"esModuleInterop": true,
 		"moduleResolution": "bundler",

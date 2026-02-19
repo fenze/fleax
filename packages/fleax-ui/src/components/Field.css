@@ -1,0 +1,7 @@
+@layer components {
+	.fx-field {
+		display: inline-flex;
+		flex-direction: column;
+		gap: calc(var(--spacing) * 2);
+	}
+}

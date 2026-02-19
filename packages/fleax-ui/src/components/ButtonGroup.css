@@ -1,0 +1,42 @@
+@layer components {
+	.fx-button-group {
+		display: inline-flex;
+		align-items: stretch;
+		gap: calc(var(--spacing) * 2);
+	}
+
+	.fx-button-group.vertical {
+		flex-direction: column;
+	}
+
+	.fx-button-group-segment {
+		display: inline-flex;
+		align-items: stretch;
+		gap: 0;
+	}
+
+	.fx-button-group-segment.vertical {
+		flex-direction: column;
+	}
+
+	.fx-button-group-segment.horizontal > .fx-button + .fx-button {
+		border-top-left-radius: 0;
+		border-bottom-left-radius: 0;
+	}
+
+	.fx-button-group-segment.horizontal > .fx-button:has(+ .fx-button) {
+		border-top-right-radius: 0;
+		border-bottom-right-radius: 0;
+		border-right: none;
+	}
+
+	.fx-button-group-segment.vertical > .fx-button + .fx-button {
+		border-top-left-radius: 0;
+		border-top-right-radius: 0;
+	}
+
+	.fx-button-group-segment.vertical > .fx-button:has(+ .fx-button) {
+		border-bottom-left-radius: 0;
+		border-bottom-right-radius: 0;
+	}
+}

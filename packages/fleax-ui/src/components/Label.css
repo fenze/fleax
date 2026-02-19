@@ -1,0 +1,20 @@
+@layer components {
+	.fx-label {
+		font-size: var(--font-size-small);
+		font-weight: var(--font-weight-medium);
+	}
+
+	.fx-label:has(+ input:disabled) {
+		opacity: 0.5;
+	}
+
+	.fx-label:has(+ input[aria-invalid="true"]),
+	.fx-label:has(+ input:user-invalid) {
+		color: var(--color-destructive);
+	}
+
+	.fx-label:has(+ input:required):after {
+		content: "*";
+		color: var(--color-destructive);
+	}
+}

@@ -1,0 +1,19 @@
+@layer components {
+	.fx-kbd {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 22px;
+		min-width: 22px;
+		padding-inline: calc(var(--spacing) * 1);
+		padding-block: 0;
+		background: var(--color-muted-background);
+		color: var(--color-muted-foreground);
+		border-radius: calc(var(--radius) - 5px);
+		line-height: 1;
+		vertical-align: middle;
+		font-family: var(--font-family-default);
+		font-size: 15px;
+		user-select: none;
+	}
+}

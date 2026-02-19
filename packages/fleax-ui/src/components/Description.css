@@ -1,0 +1,8 @@
+@layer components {
+	.fx-description {
+		color: var(--color-muted-foreground);
+		font-size: var(--font-size-small);
+		font-weight: var(--font-weight-normal);
+		margin: 0;
+	}
+}

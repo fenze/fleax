@@ -1,5 +1,5 @@
 import { Island, jsx, renderToString } from "../src/index.js";
-import { getIslands, resetIslands } from "../src/island.js";
+import { getIslandClassName, getIslands, resetIslands } from "../src/island.js";
 
 const test = (name: string, result: string, expected: string) => {
 	if (result === expected) {
@@ -23,7 +23,7 @@ const island1 = renderToString(
 test(
 	"Basic island renders wrapper",
 	island1,
-	'<div data-island="./counter.ts" data-island-id="island-1"><button>Click me</button></div>',
+	`<div class="${getIslandClassName("./counter.ts")}"><button>Click me</button></div>`,
 );
 
 resetIslands();
@@ -41,8 +41,12 @@ const islands2 = renderToString(
 		],
 	}),
 );
-const hasCounter = islands2.includes('data-island="./counter.ts"');
-const hasToggle = islands2.includes('data-island="./toggle.ts"');
+const hasCounter = islands2.includes(
+	`class="${getIslandClassName("./counter.ts")}"`,
+);
+const hasToggle = islands2.includes(
+	`class="${getIslandClassName("./toggle.ts")}"`,
+);
 test("Multiple islands render", hasCounter && hasToggle ? "ok" : "fail", "ok");
 
 resetIslands();
@@ -61,9 +65,8 @@ const duplicateIslands = renderToString(
 	}),
 );
 const duplicateCount = (
-	duplicateIslands.match(
-		/data-island="\.\.\/counter\.ts"|data-island="\.\/counter\.ts"/g,
-	) || []
+	duplicateIslands.match(new RegExp(getIslandClassName("./counter.ts"), "g")) ||
+	[]
 ).length;
 test(
 	"Duplicate island instances render",
@@ -91,13 +94,15 @@ test(
 resetIslands();
 const island4 = renderToString(
 	Island({
-		src: "@/components/custom-counter.ts",
+		src: "@/islands/custom-counter.ts",
 		children: jsx("button", { children: "0" }),
 	}),
 );
 test(
 	"Custom island source",
-	island4.includes('data-island="@/components/custom-counter.ts"')
+	island4.includes(
+		`class="${getIslandClassName("@/islands/custom-counter.ts")}"`,
+	)
 		? "ok"
 		: "fail",
 	"ok",

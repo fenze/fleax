@@ -1,0 +1,130 @@
+.fleax-table-container {
+	width: 100%;
+	overflow: auto;
+	position: relative;
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius);
+	background-color: var(--color-background);
+}
+
+.fleax-table {
+	display: block;
+	width: 100%;
+	border-spacing: 0;
+	font-size: 0.875rem;
+	text-align: left;
+}
+
+.fleax-table thead {
+	display: block;
+	position: sticky;
+	top: 0;
+	z-index: 30;
+	background: var(--color-background);
+	border-bottom: 1px solid var(--color-border);
+}
+
+.fleax-table tbody {
+	display: block;
+}
+
+.fleax-table tr {
+	display: flex;
+	width: 100%;
+	position: relative;
+	height: var(--fleax-row-height, 48px);
+	min-height: var(--fleax-row-height, 48px);
+	border-bottom: 1px solid var(--color-border);
+	background-color: var(--color-background);
+}
+
+.fleax-table tr:last-child {
+	border-bottom: none;
+}
+
+.fleax-table th,
+.fleax-table td {
+	padding: 0.75rem 1rem;
+	display: flex;
+	align-items: center;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	flex: 1 0 0px;
+}
+
+.fleax-table td[style*="text-align: center"],
+.fleax-table th[style*="text-align: center"] {
+	justify-content: center;
+}
+
+.fleax-table td[style*="text-align: end"],
+.fleax-table th[style*="text-align: end"] {
+	justify-content: flex-end;
+}
+
+.fleax-table thead th {
+	font-weight: var(--font-weight-medium);
+}
+
+.fleax-table tr:hover td {
+	background-color: color-mix(
+		in oklab,
+		var(--color-muted-background) 40%,
+		transparent
+	);
+}
+
+.fleax-table tr[data-selected="true"] td {
+	background: var(--color-secondary-background);
+}
+
+.fleax-table-sort-icon {
+	margin-left: 0.5rem;
+	display: inline-flex;
+	align-items: center;
+	cursor: pointer;
+	opacity: 0.3;
+}
+
+th:hover .fleax-table-sort-icon {
+	opacity: 0.7;
+}
+
+th[data-sort-dir="asc"] .fleax-table-sort-icon::before {
+	content: "↑";
+	opacity: 1;
+}
+th[data-sort-dir="desc"] .fleax-table-sort-icon::before {
+	content: "↓";
+	opacity: 1;
+}
+th[data-sort-dir="none"] .fleax-table-sort-icon::before {
+	content: "↕";
+}
+
+.fleax-table-sort-icon-inner {
+	display: none;
+}
+
+.fleax-table-resizer {
+	position: absolute;
+	right: 0;
+	top: 0;
+	height: 100%;
+	width: 4px;
+	cursor: col-resize;
+	user-select: none;
+	touch-action: none;
+}
+
+.fleax-table-resizer:hover,
+.fleax-table-resizer[data-resizing="true"] {
+	background: var(--color-primary-background);
+}
+
+.fleax-table-footer {
+	padding: 0.75rem 1rem;
+	background: var(--color-muted-background);
+	border-top: 1px solid var(--color-border);
+}

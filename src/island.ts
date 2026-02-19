@@ -12,17 +12,26 @@ type IslandEntry = {
 };
 
 const islandRegistry = new Map<string, IslandEntry>();
-let islandCounter = 0;
+
+const hashString = (value: string) => {
+	let h = 2166136261;
+	for (let i = 0; i < value.length; i++) {
+		h ^= value.charCodeAt(i);
+		h = Math.imul(h, 16777619);
+	}
+	return (h >>> 0).toString(16).padStart(8, "0");
+};
+
+export const getIslandClassName = (src: string) => `__${hashString(src)}`;
 
 export const resetIslands = () => {
 	islandRegistry.clear();
-	islandCounter = 0;
 };
 
 export const getIslands = () => new Map(islandRegistry);
 
 export const Island = ({ src, id, children }: IslandProps): VNode => {
-	const islandId = id || `island-${++islandCounter}`;
+	const islandClassName = getIslandClassName(src);
 
 	islandRegistry.set(src, {
 		originalSrc: src,
@@ -34,8 +43,8 @@ export const Island = ({ src, id, children }: IslandProps): VNode => {
 		props: {
 			children: [
 				jsx("div", {
-					"data-island": src,
-					"data-island-id": islandId,
+					class: islandClassName,
+					id: id || undefined,
 					children,
 				}),
 			],

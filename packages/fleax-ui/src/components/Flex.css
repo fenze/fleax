@@ -1,0 +1,6 @@
+@layer components {
+	.fx-flex {
+		display: inline-flex;
+		gap: calc(var(--spacing) * 2);
+	}
+}

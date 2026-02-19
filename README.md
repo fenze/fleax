@@ -17,7 +17,13 @@ A tiny SSG framework with Islands architecture. Zero runtime dependencies.
 ## Installation
 
 ```bash
-npm install fleax
+npm install @fleax/core
+```
+
+Optional UI package:
+
+```bash
+npm install @fleax/ui
 ```
 
 Or create a new project:
@@ -28,7 +34,7 @@ cd my-project
 npm run build
 ```
 
-If no name is provided, `create` prompts for one interactively.
+If no name is provided, `create` prompts for one interactively. You can also pass `--ui` or `--no-ui` to include or skip `@fleax/ui`.
 
 ## Quick Start
 
@@ -39,7 +45,7 @@ If no name is provided, `create` prompts for one interactively.
 {
   "compilerOptions": {
     "jsx": "react-jsx",
-    "jsxImportSource": "fleax"
+    "jsxImportSource": "@fleax/core"
   }
 }
 ```
@@ -48,7 +54,7 @@ If no name is provided, `create` prompts for one interactively.
 
 ```tsx
 // src/index.tsx
-import { Island } from "fleax";
+import { Island } from "@fleax/core";
 import "./style.css";
 
 export const meta = {
@@ -59,7 +65,7 @@ export const meta = {
 export default (
   <main>
     <h1>Hello World</h1>
-    <Island src="@/components/counter.ts">
+    <Island src="@/islands/counter.ts">
       <button type="button" class="increment">Count: 0</button>
     </Island>
   </main>
@@ -71,8 +77,8 @@ export default (
 Islands receive the wrapper element and add interactivity:
 
 ```ts
-// src/components/counter.ts
-import "@/components/counter.css";
+// src/islands/counter.ts
+import "@/islands/counter.css";
 
 export default (el: Element) => {
   let count = 0;
@@ -104,7 +110,7 @@ npx fleax serve --hot
 ## CLI
 
 ```bash
-npx fleax create [name]         # Create new project (prompts if missing)
+npx fleax create [name] [--ui|--no-ui]  # Create project, optional @fleax/ui starter
 npx fleax build                 # Build pages with incremental cache
 npx fleax watch                 # Watch source and rebuild on change
 npx fleax serve [port]          # Serve dist/ folder (default: 3000)
@@ -125,19 +131,42 @@ import {
   jsx, jsxs,      // JSX runtime
   renderToString, // Render VNode to HTML
   VNode           // Type
-} from "fleax";
+} from "@fleax/core";
+```
+
+## UI Components
+
+`@fleax/ui` is an optional component package in this repo.
+
+```ts
+import { Button, Card, CardBody, CardTitle } from "@fleax/ui";
+```
+
+```tsx
+<Card>
+  <CardTitle>Hello</CardTitle>
+  <CardBody>Reusable UI components.</CardBody>
+</Card>
+<Button variant="solid">Click me</Button>
+```
+
+`@fleax/ui` components import their own CSS automatically.  
+Optional global CSS is still available:
+
+```ts
+import "@fleax/ui/styles.css";
 ```
 
 ### Island
 
 ```tsx
-<Island src="@/components/counter.ts">
+<Island src="@/islands/counter.ts">
   <button>Click me</button>
 </Island>
 ```
 
-Renders a wrapper `<div data-island="@/components/counter.ts">` around children. The island file's default export receives this element.
-Each wrapper also gets a stable `data-island-id`, and all matching instances are hydrated.
+Renders a wrapper `<div class="__...">` around children. The island file's default export receives this element.
+All matching wrappers for the same island source are hydrated.
 
 ### Page Meta
 
@@ -145,9 +174,15 @@ Each wrapper also gets a stable `data-island-id`, and all matching instances are
 export const meta = {
   title: "Page Title",
   lang: "en",
+  themeColor: {
+    light: "#ffffff",
+    dark: "#000000",
+  },
   head: <meta name="description" content="...">,
 };
 ```
+
+`themeColor` is optional. Defaults are `light: "#ffffff"` and `dark: "#000000"`.
 
 ## CSS
 
@@ -157,14 +192,31 @@ Import CSS in pages or islands:
 // src/index.tsx (page)
 import "./style.css";
 
-// src/components/counter.ts (island)
-import "@/components/counter.css";
+// src/islands/counter.ts (island)
+import "@/islands/counter.css";
 ```
 
 CSS is:
 - Extracted to separate files
 - Minified in production
 - Content-hashed in production
+
+Production builds also enable CSS purge by default.  
+To keep dynamic class names, configure `package.json`:
+
+```json
+{
+  "fleax": {
+    "class": {
+      "keep": ["is-open", "theme-dark", "btn-active"]
+    }
+  }
+}
+```
+
+CLI flags:
+- `--purge` force enable purge
+- `--no-purge` disable purge
 
 ## Path Aliases
 
@@ -183,7 +235,7 @@ Configure in `tsconfig.json`:
 
 Use in islands:
 ```tsx
-<Island src="@/components/counter.ts">
+<Island src="@/islands/counter.ts">
 ```
 
 ## Project Structure
@@ -193,7 +245,7 @@ my-project/
 ├── src/
 │   ├── index.tsx          # Page
 │   ├── style.css          # Page styles
-│   └── components/
+│   └── islands/
 │       ├── counter.ts     # Island
 │       └── counter.css    # Island styles
 ├── package.json
@@ -225,7 +277,7 @@ dist/
 <body>
   <main>
     <h1>Hello World</h1>
-    <div data-island="@/components/counter.ts" data-island-id="island-1">
+    <div class="__96f4f26a">
       <button type="button" class="increment">Count: 0</button>
     </div>
   </main>
@@ -236,9 +288,9 @@ dist/
 
 ## How Islands Work
 
-1. **Build time**: `<Island>` wraps children in `<div data-island="..." data-island-id="...">`
+1. **Build time**: `<Island>` wraps children in `<div class="__...">`
 2. **Bundle**: Each island file is bundled into a self-executing IIFE
-3. **Runtime**: The script finds all matching elements via `data-island` and calls `default(el)` for each
+3. **Runtime**: The script finds all matching elements by island class and calls `default(el)` for each
 
 ## Build Cache
 

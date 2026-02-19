@@ -1,0 +1,15 @@
+@layer components {
+	.fx-kbd-group {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--spacing);
+		user-select: none;
+	}
+
+	.fx-kbd-group > span {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		line-height: 1;
+	}
+}

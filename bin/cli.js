@@ -6,12 +6,14 @@ import {
 	mkdirSync,
 	readdirSync,
 	readFileSync,
+	realpathSync,
 	rmSync,
 	statSync,
 	watch,
 	writeFileSync,
 } from "node:fs";
 import { createServer } from "node:http";
+import { createRequire } from "node:module";
 import {
 	basename,
 	dirname,
@@ -25,10 +27,16 @@ import { createInterface } from "node:readline/promises";
 import { pathToFileURL } from "node:url";
 import brotli from "brotli";
 import * as lightningcss from "lightningcss";
-import { getIslands, renderToString, resetIslands } from "../dist/index.js";
+import {
+	getIslandClassName,
+	getIslands,
+	renderToString,
+	resetIslands,
+} from "../dist/index.js";
 
 const isProd = process.env.NODE_ENV === "production";
 const cwd = process.cwd();
+const nodeRequire = createRequire(import.meta.url);
 const CACHE_FILE = join(cwd, ".fleax-cache.json");
 const CACHE_VERSION = 1;
 
@@ -36,6 +44,86 @@ const log = (msg) => console.log(`[fleax] ${msg}`);
 const hash = (s) => createHash("md5").update(s).digest("hex").slice(0, 8);
 const escapeHTML = (s) =>
 	String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+
+const extractClassesFromHtml = (html) => {
+	const classes = new Set();
+	const classAttr = /class\s*=\s*("([^"]*)"|'([^']*)')/g;
+	let match = classAttr.exec(html);
+	while (match) {
+		const value = match[2] || match[3] || "";
+		for (const token of value.split(/\s+/).filter(Boolean)) classes.add(token);
+		match = classAttr.exec(html);
+	}
+	return classes;
+};
+
+const extractClassSymbolsFromCss = (css) => {
+	const symbols = new Set();
+	const classSymbol = /\.(-?[_a-zA-Z]+[_a-zA-Z0-9-]*)/g;
+	let match = classSymbol.exec(css);
+	while (match) {
+		symbols.add(match[1]);
+		match = classSymbol.exec(css);
+	}
+	return symbols;
+};
+
+const loadFleaxConfig = () => {
+	const packageJsonPath = join(cwd, "package.json");
+	if (!existsSync(packageJsonPath)) return { classKeep: [] };
+	try {
+		const raw = JSON.parse(readFileSync(packageJsonPath, "utf-8"));
+		const classKeep = Array.isArray(raw?.fleax?.class?.keep)
+			? raw.fleax.class.keep.filter((s) => typeof s === "string")
+			: [];
+		return { classKeep };
+	} catch {
+		return { classKeep: [] };
+	}
+};
+
+const optimizeCss = (
+	css,
+	{
+		purge = false,
+		usedClasses = new Set(),
+		classKeep = [],
+		filename = "style.css",
+	} = {},
+) => {
+	if (!purge && !isProd) return css;
+	let unusedSymbols;
+	if (purge) {
+		const keep = new Set([...usedClasses, ...classKeep]);
+		const allSymbols = extractClassSymbolsFromCss(css);
+		const expandedKeep = new Set(keep);
+		for (const symbol of allSymbols) {
+			for (const token of keep) {
+				if (
+					symbol === token ||
+					symbol.startsWith(`${token}-`) ||
+					token.startsWith(`${symbol}-`)
+				) {
+					expandedKeep.add(symbol);
+					break;
+				}
+			}
+		}
+		unusedSymbols = [...allSymbols].filter(
+			(symbol) => !expandedKeep.has(symbol),
+		);
+	}
+	const { code } = lightningcss.transform({
+		filename,
+		code: Buffer.from(css),
+		minify: isProd,
+		unusedSymbols,
+	});
+	return code.toString();
+};
+
+const classKeepHash = (classKeep) =>
+	createHash("md5").update(JSON.stringify(classKeep)).digest("hex");
 
 const minifyCss = (css) => {
 	if (!isProd) return css;
@@ -114,11 +202,13 @@ const depHashesEqual = (a, b) => {
 	return true;
 };
 
-const loadCache = () => {
+const loadCache = (profile) => {
 	if (!existsSync(CACHE_FILE)) {
 		return {
 			version: CACHE_VERSION,
 			mode: isProd ? "production" : "development",
+			purge: profile.purge,
+			classKeepHash: profile.classKeepHash,
 			pages: {},
 			islands: {},
 		};
@@ -128,11 +218,15 @@ const loadCache = () => {
 		const raw = JSON.parse(readFileSync(CACHE_FILE, "utf-8"));
 		if (
 			raw.version !== CACHE_VERSION ||
-			raw.mode !== (isProd ? "production" : "development")
+			raw.mode !== (isProd ? "production" : "development") ||
+			raw.purge !== profile.purge ||
+			raw.classKeepHash !== profile.classKeepHash
 		) {
 			return {
 				version: CACHE_VERSION,
 				mode: isProd ? "production" : "development",
+				purge: profile.purge,
+				classKeepHash: profile.classKeepHash,
 				pages: {},
 				islands: {},
 			};
@@ -140,6 +234,8 @@ const loadCache = () => {
 		return {
 			version: CACHE_VERSION,
 			mode: isProd ? "production" : "development",
+			purge: profile.purge,
+			classKeepHash: profile.classKeepHash,
 			pages: raw.pages || {},
 			islands: raw.islands || {},
 		};
@@ -147,6 +243,8 @@ const loadCache = () => {
 		return {
 			version: CACHE_VERSION,
 			mode: isProd ? "production" : "development",
+			purge: profile.purge,
+			classKeepHash: profile.classKeepHash,
 			pages: {},
 			islands: {},
 		};
@@ -154,7 +252,7 @@ const loadCache = () => {
 };
 
 const saveCache = (cache) => {
-	writeFileSync(CACHE_FILE, JSON.stringify(cache, null, 2));
+	writeFileSync(CACHE_FILE, JSON.stringify(cache, null, "\t"));
 };
 
 const resolveIslandSrcPath = (src) => {
@@ -164,7 +262,11 @@ const resolveIslandSrcPath = (src) => {
 		return existsSync(srcDir) ? srcDir : rootPath;
 	}
 	if (src.startsWith("./")) return join(cwd, src);
-	return src;
+	try {
+		return nodeRequire.resolve(src, { paths: [cwd] });
+	} catch {
+		return src;
+	}
 };
 
 const outputExistsForUrl = (outDir, urlPath) => {
@@ -184,20 +286,115 @@ const wrapDocument = (body, meta, scripts, cssLinks) => {
 	const headHtml = head ? renderToString(head) : "";
 	const safeLang = escapeHTML(lang);
 	const safeTitle = title ? `<title>${escapeHTML(title)}</title>` : "";
-	return `<!DOCTYPE html><html lang="${safeLang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">${safeTitle}${cssLinks}${headHtml}</head><body>${body}${scripts}</body></html>`;
+	const themeColor = meta?.themeColor;
+	const themeColorLight =
+		typeof themeColor === "string"
+			? themeColor
+			: typeof themeColor?.light === "string"
+				? themeColor.light
+				: "#ffffff";
+	const themeColorDark =
+		typeof themeColor === "string"
+			? themeColor
+			: typeof themeColor?.dark === "string"
+				? themeColor.dark
+				: "#000000";
+	const themeColorMeta = `<meta name="theme-color" media="(prefers-color-scheme: light)" content="${escapeHTML(themeColorLight)}"><meta name="theme-color" media="(prefers-color-scheme: dark)" content="${escapeHTML(themeColorDark)}">`;
+	const themeBootstrap =
+		'<script>(()=>{const a=v=>{const t=v==="dark"?"dark":"light";document.documentElement.style.colorScheme=t};try{a(localStorage.getItem("theme"))}catch{a(null)};addEventListener("storage",e=>{if(e.key==="theme")a(e.newValue)})})();</script>';
+	return `<!DOCTYPE html><html lang="${safeLang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="color-scheme" content="dark light">${themeColorMeta}${themeBootstrap}${safeTitle}${cssLinks}${headHtml}</head><body>${body}${scripts}</body></html>`;
 };
 
-const cssPlugin = () => ({
+const resolveCssImportPath = (cssPath, resolveDir) => {
+	if (cssPath.startsWith("@/")) {
+		const srcDir = join(cwd, "src", cssPath.slice(2));
+		const rootPath = join(cwd, cssPath.slice(2));
+		return existsSync(srcDir) ? srcDir : rootPath;
+	}
+	if (cssPath.startsWith("./") || cssPath.startsWith("../")) {
+		return resolve(resolveDir || cwd, cssPath);
+	}
+	if (cssPath.startsWith("/")) {
+		return resolve(cwd, cssPath.slice(1));
+	}
+	try {
+		return nodeRequire.resolve(cssPath, {
+			paths: [resolveDir || cwd, cwd],
+		});
+	} catch {
+		return cssPath;
+	}
+};
+
+const isFleaxUiComponentCssPath = (filePath) => {
+	const normalized = String(filePath || "").replace(/\\/g, "/");
+	return (
+		normalized.includes("/@fleax/ui/dist/components/") ||
+		normalized.includes("/packages/fleax-ui/dist/components/")
+	);
+};
+
+const cssStartsWithLayerRule = (css) => /^\s*@layer\b/i.test(css);
+
+const composeCollectedCss = (entries) => {
+	if (!Array.isArray(entries) || entries.length === 0) return "";
+
+	const chunks = [];
+	let componentsLayerOpen = false;
+
+	const closeComponentsLayer = () => {
+		if (!componentsLayerOpen) return;
+		chunks.push("}");
+		componentsLayerOpen = false;
+	};
+
+	for (const entry of entries) {
+		const content = String(entry?.content || "").trim();
+		if (!content) continue;
+
+		const shouldWrapInComponentsLayer =
+			isFleaxUiComponentCssPath(entry.path) && !cssStartsWithLayerRule(content);
+
+		if (shouldWrapInComponentsLayer) {
+			if (!componentsLayerOpen) {
+				chunks.push("@layer components {");
+				componentsLayerOpen = true;
+			}
+			chunks.push(content);
+			continue;
+		}
+
+		closeComponentsLayer();
+		chunks.push(content);
+	}
+
+	closeComponentsLayer();
+	return chunks.length > 0 ? `${chunks.join("\n\n")}\n` : "";
+};
+
+const cssPlugin = (collector) => ({
 	name: "fleax-css",
 	setup(build) {
-		build.onResolve({ filter: /\.css$/ }, (args) => ({
-			path: args.path,
-			namespace: "css-void",
-		}));
-		build.onLoad({ filter: /.*/, namespace: "css-void" }, () => ({
-			contents: "",
-			loader: "js",
-		}));
+		build.onResolve({ filter: /\.css$/ }, async (args) => {
+			const path = resolveCssImportPath(args.path, args.resolveDir);
+			return {
+				path,
+				namespace: "css-void",
+			};
+		});
+		build.onLoad({ filter: /.*/, namespace: "css-void" }, (args) => {
+			if (collector && existsSync(args.path)) {
+				collector.paths.add(args.path);
+				collector.entries.push({
+					path: args.path,
+					content: readFileSync(args.path, "utf-8"),
+				});
+			}
+			return {
+				contents: "",
+				loader: "js",
+			};
+		});
 	},
 });
 
@@ -263,34 +460,9 @@ const buildIslands = async (islands, outDir, islandCache) => {
 		const baseName = basename(srcPath, extname(srcPath));
 		const fileHash = isProd ? `.${hash(content)}` : "";
 		const outName = `${baseName}${fileHash}.js`;
+		const islandClassName = getIslandClassName(src);
 
-		const cssImports = content.match(/import\s+['"]([^'"]+\.css)['"]/g) || [];
-		let cssContent = "";
-		for (const imp of cssImports) {
-			const match = imp.match(/['"]([^'"]+)['"]/);
-			const cssPath = match ? match[1] : null;
-			if (cssPath) {
-				let fullPath = cssPath;
-				if (cssPath.startsWith("@/")) {
-					const srcDir = join(cwd, "src", cssPath.slice(2));
-					const rootPath = join(cwd, cssPath.slice(2));
-					fullPath = existsSync(srcDir) ? srcDir : rootPath;
-				} else if (cssPath.startsWith("./")) {
-					fullPath = join(dirname(srcPath), cssPath);
-				}
-				if (existsSync(fullPath)) {
-					cssContent += `${readFileSync(fullPath, "utf-8")}\n`;
-				}
-			}
-		}
-
-		if (cssContent) {
-			const minified = minifyCss(cssContent);
-			const cssHash = isProd ? `.${hash(minified)}` : "";
-			const cssName = `${baseName}${cssHash}.css`;
-			writeFileSync(join(outDir, "islands", cssName), minified);
-			cssOutputs.set(src, `/islands/${cssName}`);
-		}
+		const cssCollector = { entries: [], paths: new Set() };
 
 		const result = await esbuild.build({
 			entryPoints: [srcPath],
@@ -300,15 +472,24 @@ const buildIslands = async (islands, outDir, islandCache) => {
 			format: "iife",
 			globalName: "_island",
 			footer: {
-				js: `if(_island&&typeof _island.default==="function"){const nodes=document.querySelectorAll('[data-island="${src}"]');for(const el of nodes){_island.default(el)}}`,
+				js: `if(_island&&typeof _island.default==="function"){const nodes=document.querySelectorAll('.${islandClassName}');for(const el of nodes){_island.default(el)}}`,
 			},
 			minify: false,
 			legalComments: isProd ? "none" : "inline",
 			sourcemap: !isProd,
 			platform: "browser",
-			plugins: [cssPlugin()],
+			plugins: [cssPlugin(cssCollector)],
 			metafile: true,
 		});
+
+		const cssContent = composeCollectedCss(cssCollector.entries).trim();
+		if (cssContent) {
+			const minified = minifyCss(cssContent);
+			const cssHash = isProd ? `.${hash(minified)}` : "";
+			const cssName = `${baseName}${cssHash}.css`;
+			writeFileSync(join(outDir, "islands", cssName), minified);
+			cssOutputs.set(src, `/islands/${cssName}`);
+		}
 
 		if (isProd) {
 			const jsPath = join(outDir, "islands", outName);
@@ -337,7 +518,8 @@ const buildIslands = async (islands, outDir, islandCache) => {
 		const depPaths = Object.keys(result.metafile?.inputs || {}).map(
 			(inputPath) => resolveInputPath(inputPath),
 		);
-		const depHashes = computeDepHashes(depPaths);
+		for (const cssPath of cssCollector.paths) depPaths.push(cssPath);
+		const depHashes = computeDepHashes([...new Set(depPaths)]);
 		const jsPath = `/islands/${outName}`;
 		const cssPath = cssOutputs.get(src);
 
@@ -388,27 +570,7 @@ const findPages = (dir) => {
 
 // Process CSS imports from a file, return { css, tempPath, depHashes }
 const processPageFile = async (pagePath) => {
-	const content = readFileSync(pagePath, "utf-8");
-	const cssImports = content.match(/import\s+['"]([^'"]+\.css)['"]/g) || [];
-	let pageCss = "";
-
-	for (const imp of cssImports) {
-		const match = imp.match(/['"]([^'"]+)['"]/);
-		const cssPath = match ? match[1] : null;
-		if (cssPath) {
-			let fullPath = cssPath;
-			if (cssPath.startsWith("@/")) {
-				const srcDir = join(cwd, "src", cssPath.slice(2));
-				const rootPath = join(cwd, cssPath.slice(2));
-				fullPath = existsSync(srcDir) ? srcDir : rootPath;
-			} else if (cssPath.startsWith("./")) {
-				fullPath = join(dirname(pagePath), cssPath);
-			}
-			if (existsSync(fullPath)) {
-				pageCss += `${readFileSync(fullPath, "utf-8")}\n`;
-			}
-		}
-	}
+	const cssCollector = { entries: [], paths: new Set() };
 
 	// Bundle with esbuild (handles JSX + strips CSS)
 	const esbuild = await import("esbuild");
@@ -426,10 +588,10 @@ const processPageFile = async (pagePath) => {
 		treeShaking: true,
 		format: "esm",
 		platform: "node",
-		external: ["node:*", "fleax"],
-		plugins: [cssPlugin()],
+		external: ["node:*", "@fleax/core"],
+		plugins: [cssPlugin(cssCollector)],
 		jsx: "automatic",
-		jsxImportSource: "fleax",
+		jsxImportSource: "@fleax/core",
 		jsxSideEffects: false,
 		metafile: true,
 	});
@@ -437,7 +599,9 @@ const processPageFile = async (pagePath) => {
 	const depPaths = Object.keys(result.metafile?.inputs || {}).map((inputPath) =>
 		resolveInputPath(inputPath),
 	);
-	const depHashes = computeDepHashes(depPaths);
+	for (const cssPath of cssCollector.paths) depPaths.push(cssPath);
+	const depHashes = computeDepHashes([...new Set(depPaths)]);
+	const pageCss = composeCollectedCss(cssCollector.entries).trim();
 
 	return { css: pageCss, tempPath, depHashes };
 };
@@ -481,9 +645,15 @@ const renderPage = async (pagePath) => {
 	};
 };
 
-const build = async () => {
+const build = async ({ purge } = {}) => {
 	const outDir = join(cwd, "dist");
 	mkdirSync(outDir, { recursive: true });
+	const fleaxConfig = loadFleaxConfig();
+	const shouldPurge = typeof purge === "boolean" ? purge : isProd;
+	const profile = {
+		purge: shouldPurge,
+		classKeepHash: classKeepHash(fleaxConfig.classKeep),
+	};
 
 	const pageFiles = findPages(cwd);
 
@@ -494,7 +664,7 @@ const build = async () => {
 		return;
 	}
 
-	const cache = loadCache();
+	const cache = loadCache(profile);
 	const prevPages = cache.pages || {};
 	const prevIslands = cache.islands || {};
 	const nextPages = {};
@@ -600,7 +770,13 @@ const build = async () => {
 
 		let cssPath;
 		if (page.css) {
-			const minified = minifyCss(page.css);
+			const usedClasses = extractClassesFromHtml(page.html || "");
+			const minified = optimizeCss(page.css, {
+				purge: shouldPurge,
+				usedClasses,
+				classKeep: fleaxConfig.classKeep,
+				filename: page.path,
+			});
 			const route = getPageRoute(page.path);
 			const pageCssHash = isProd ? `.${hash(minified)}` : "";
 			const pageCssName = `${route}${pageCssHash}.css`;
@@ -630,6 +806,8 @@ const build = async () => {
 	saveCache({
 		version: CACHE_VERSION,
 		mode: isProd ? "production" : "development",
+		purge: shouldPurge,
+		classKeepHash: profile.classKeepHash,
 		pages: nextPages,
 		islands: nextIslands,
 	});
@@ -646,15 +824,15 @@ const build = async () => {
 	if (existsSync(tempDir)) rmSync(tempDir, { recursive: true });
 };
 
-const dev = async () => {
+const dev = async ({ purge } = {}) => {
 	log("Development mode");
 	log("Run `NODE_ENV=production npx fleax build` for production.");
-	await build();
+	await build({ purge });
 };
 
-const watchMode = async () => {
+const watchMode = async ({ purge } = {}) => {
 	log("Watch mode");
-	await build();
+	await build({ purge });
 
 	let timer;
 	let building = false;
@@ -670,7 +848,7 @@ const watchMode = async () => {
 
 			building = true;
 			try {
-				await build();
+				await build({ purge });
 			} catch (e) {
 				log(`Build failed: ${e?.message || e}`);
 			} finally {
@@ -712,14 +890,31 @@ const askProjectName = async () => {
 	}
 };
 
-const create = async (name) => {
+const askIncludeUi = async () => {
+	if (!process.stdin.isTTY || !process.stdout.isTTY) return false;
+	const rl = createInterface({
+		input: process.stdin,
+		output: process.stdout,
+	});
+	try {
+		const answer = await rl.question(
+			"Include @fleax/ui starter components? (y/N): ",
+		);
+		const normalized = answer.trim().toLowerCase();
+		return normalized === "y" || normalized === "yes";
+	} finally {
+		rl.close();
+	}
+};
+
+const create = async ({ name, includeUi }) => {
 	let projectName = (name || "").trim();
 	if (!projectName) {
 		projectName = await askProjectName();
 	}
 
 	if (!projectName) {
-		console.log("Usage: fleax create <project-name>");
+		console.log("Usage: fleax create [name] [--ui|--no-ui]");
 		process.exit(1);
 	}
 
@@ -729,7 +924,12 @@ const create = async (name) => {
 		process.exit(1);
 	}
 
-	mkdirSync(join(projectDir, "src", "components"), { recursive: true });
+	let withUi = includeUi;
+	if (typeof withUi !== "boolean") {
+		withUi = await askIncludeUi();
+	}
+
+	mkdirSync(join(projectDir, "src", "islands"), { recursive: true });
 
 	const packageJson = {
 		name: projectName,
@@ -740,7 +940,7 @@ const create = async (name) => {
 			dev: "fleax build && fleax serve",
 		},
 		dependencies: {
-			fleax: "latest",
+			"@fleax/core": "latest",
 		},
 		devDependencies: {
 			tsx: "^4.21.0",
@@ -748,6 +948,9 @@ const create = async (name) => {
 			"google-closure-compiler": "^20260216.0.0",
 		},
 	};
+	if (withUi) {
+		packageJson.dependencies["@fleax/ui"] = "latest";
+	}
 
 	const tsconfig = {
 		compilerOptions: {
@@ -755,7 +958,7 @@ const create = async (name) => {
 			module: "ESNext",
 			moduleResolution: "bundler",
 			jsx: "react-jsx",
-			jsxImportSource: "fleax",
+			jsxImportSource: "@fleax/core",
 			strict: true,
 			baseUrl: ".",
 			paths: {
@@ -765,7 +968,37 @@ const create = async (name) => {
 		include: ["src/**/*.ts", "src/**/*.tsx"],
 	};
 
-	const indexTsx = `import { Island } from "fleax";
+	const indexTsx = withUi
+		? `import { Island } from "@fleax/core";
+import { Button, Card, CardBody, CardTitle } from "@fleax/ui";
+import "@fleax/ui/styles.css";
+import "./style.css";
+
+export const meta = {
+	title: "${projectName}",
+};
+
+export default (
+	<main>
+		<Card class="intro-card">
+			<CardTitle>${projectName}</CardTitle>
+			<CardBody>Fleax app with optional @fleax/ui components.</CardBody>
+		</Card>
+		<Island src="@/islands/counter.ts">
+			<div class="counter">
+				<Button type="button" variant="outline" class="decrement">
+					−
+				</Button>
+				<span class="count">0</span>
+				<Button type="button" class="increment">
+					+
+				</Button>
+			</div>
+		</Island>
+	</main>
+);
+`
+		: `import { Island } from "@fleax/core";
 import "./style.css";
 
 export const meta = {
@@ -775,7 +1008,7 @@ export const meta = {
 export default (
 	<main>
 		<h1>${projectName}</h1>
-		<Island src="@/components/counter.ts">
+		<Island src="@/islands/counter.ts">
 			<div class="counter">
 				<button type="button" class="decrement">−</button>
 				<span class="count">0</span>
@@ -810,6 +1043,10 @@ h1 {
 	margin-bottom: 2rem;
 }
 
+.intro-card {
+	margin-bottom: 1.5rem;
+}
+
 .counter {
 	display: flex;
 	align-items: center;
@@ -833,7 +1070,7 @@ h1 {
 }
 `;
 
-	const counterTs = `import "@/components/counter.css";
+	const counterTs = `import "@/islands/counter.css";
 
 export default (el: Element) => {
 	let count = 0;
@@ -872,11 +1109,8 @@ export default (el: Element) => {
 	);
 	writeFileSync(join(projectDir, "src", "index.tsx"), indexTsx);
 	writeFileSync(join(projectDir, "src", "style.css"), styleCss);
-	writeFileSync(join(projectDir, "src", "components", "counter.ts"), counterTs);
-	writeFileSync(
-		join(projectDir, "src", "components", "counter.css"),
-		counterCss,
-	);
+	writeFileSync(join(projectDir, "src", "islands", "counter.ts"), counterTs);
+	writeFileSync(join(projectDir, "src", "islands", "counter.css"), counterCss);
 
 	console.log(`\nCreated ${projectName}/`);
 	console.log("Installing dependencies with npm...");
@@ -892,7 +1126,7 @@ export default (el: Element) => {
 	console.log(`  src/`);
 	console.log(`    index.tsx`);
 	console.log(`    style.css`);
-	console.log(`    components/`);
+	console.log(`    islands/`);
 	console.log(`      counter.ts`);
 	console.log(`      counter.css`);
 	console.log(`  package.json`);
@@ -903,11 +1137,11 @@ export default (el: Element) => {
 	console.log(`  npm run dev`);
 };
 
-const serve = async ({ port = 3000, hot = false } = {}) => {
+const serve = async ({ port = 3000, hot = false, purge } = {}) => {
 	const outDir = join(cwd, "dist");
 	if (!existsSync(outDir)) {
 		if (hot) {
-			await build();
+			await build({ purge });
 		} else {
 			log("No dist folder. Run `fleax build` first.");
 			process.exit(1);
@@ -934,6 +1168,7 @@ const serve = async ({ port = 3000, hot = false } = {}) => {
 	});
 
 	let sourceWatcher;
+	const dependencyWatchers = [];
 	if (hot) {
 		log("Hot mode enabled");
 		let buildTimer;
@@ -948,7 +1183,7 @@ const serve = async ({ port = 3000, hot = false } = {}) => {
 				}
 				building = true;
 				try {
-					await build();
+					await build({ purge });
 				} catch (e) {
 					log(`Build failed: ${e?.message || e}`);
 				} finally {
@@ -967,6 +1202,33 @@ const serve = async ({ port = 3000, hot = false } = {}) => {
 			if (shouldIgnoreWatchedPath(file)) return;
 			if (shouldWatchSourcePath(file)) triggerBuild();
 		});
+
+		const depPaths = [
+			join(cwd, "node_modules", "@fleax", "ui"),
+			join(cwd, "node_modules", "@fleax", "core"),
+		];
+		for (const depPath of depPaths) {
+			if (!existsSync(depPath)) continue;
+			try {
+				const target = realpathSync(depPath);
+				const watchTargets = depPath.includes("@fleax/ui")
+					? [
+							join(target, "src"),
+							join(target, "dist"),
+							join(target, "styles.css"),
+						]
+					: [join(target, "src"), join(target, "dist"), join(target, "bin")];
+				for (const watchTarget of watchTargets) {
+					if (!existsSync(watchTarget)) continue;
+					const watcher = watch(
+						watchTarget,
+						{ recursive: statSync(watchTarget).isDirectory() },
+						() => triggerBuild(),
+					);
+					dependencyWatchers.push(watcher);
+				}
+			} catch {}
+		}
 	}
 
 	const mimeTypes = {
@@ -1050,6 +1312,7 @@ const serve = async ({ port = 3000, hot = false } = {}) => {
 	process.on("SIGINT", () => {
 		distWatcher.close();
 		if (sourceWatcher) sourceWatcher.close();
+		for (const watcher of dependencyWatchers) watcher.close();
 		for (const client of liveClients) client.end();
 		server.close(() => process.exit(0));
 	});
@@ -1059,14 +1322,46 @@ const cmd = process.argv[2] || "build";
 const arg = process.argv[3];
 const restArgs = process.argv.slice(3);
 
+const parseCreateArgs = (args) => {
+	let name = "";
+	let includeUi;
+	for (const token of args) {
+		if (token === "--ui") {
+			includeUi = true;
+			continue;
+		}
+		if (token === "--no-ui") {
+			includeUi = false;
+			continue;
+		}
+		if (!token.startsWith("-") && !name) {
+			name = token;
+		}
+	}
+	return { name, includeUi };
+};
+
+const parsePurgeFlag = (args) => {
+	let purge;
+	for (const token of args) {
+		if (token === "--purge") purge = true;
+		if (token === "--no-purge") purge = false;
+	}
+	return purge;
+};
+
+const purgeFlag = parsePurgeFlag(restArgs);
+
 if (cmd === "create") {
-	create(arg);
+	const createArgs = parseCreateArgs(restArgs);
+	if (!createArgs.name && arg && !arg.startsWith("-")) createArgs.name = arg;
+	create(createArgs);
 } else if (cmd === "dev") {
-	dev();
+	dev({ purge: purgeFlag });
 } else if (cmd === "watch") {
-	watchMode();
+	watchMode({ purge: purgeFlag });
 } else if (cmd === "build") {
-	build();
+	build({ purge: purgeFlag });
 } else if (cmd === "serve") {
 	let port = 3000;
 	let hot = false;
@@ -1078,7 +1373,9 @@ if (cmd === "create") {
 		const parsed = Number.parseInt(token, 10);
 		if (!Number.isNaN(parsed)) port = parsed;
 	}
-	serve({ port, hot });
+	serve({ port, hot, purge: purgeFlag });
 } else {
-	console.log("Usage: fleax [create|build|dev|watch|serve [port] [--hot]]");
+	console.log(
+		"Usage: fleax [create [name] [--ui|--no-ui]|build|dev|watch|serve [port] [--hot]] [--purge|--no-purge]",
+	);
 }
