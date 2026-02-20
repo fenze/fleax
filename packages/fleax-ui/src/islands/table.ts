@@ -137,7 +137,9 @@ export default async (root: HTMLElement) => {
 		) {
 			const colId =
 				header.dataset.colId ||
-				String(Array.from(header.parentElement?.children).indexOf(header));
+				String(
+					Array.from(header.parentElement?.children ?? []).indexOf(header),
+				);
 			const dir = header.dataset.sortDir === "asc" ? "desc" : "asc";
 			table.querySelectorAll("th").forEach((th) => {
 				delete th.dataset.sortDir;
