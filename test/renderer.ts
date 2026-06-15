@@ -1,4 +1,4 @@
-import { Fragment, jsx, renderToString } from "../src/index.js";
+import { Fragment, jsx, Raw, renderToString } from "../src/index.js";
 
 const test = (name: string, result: unknown, expected: string) => {
 	const actual = renderToString(result);
@@ -67,6 +67,24 @@ test(
 	"Auto raw style",
 	jsx("style", { children: "body > div { color: red; }" }),
 	"<style>body > div { color: red; }</style>",
+);
+
+test(
+	"Raw html prop (unescaped)",
+	jsx(Raw, { html: "<p>1 < 2 & 3</p>" }),
+	"<p>1 < 2 & 3</p>",
+);
+
+test(
+	"Raw children (unescaped)",
+	jsx(Raw, { children: "<b>bold</b>" }),
+	"<b>bold</b>",
+);
+
+test(
+	"Raw nested in element stays raw",
+	jsx("div", { children: jsx(Raw, { html: "<span>x & y</span>" }) }),
+	"<div><span>x & y</span></div>",
 );
 
 console.log("\n--- All tests complete ---");

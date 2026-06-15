@@ -73,6 +73,6 @@ NODE_ENV=production npx fleax build
 ```
 
 This enables:
-- **Minification**: Using Google Closure Compiler for JS and LightningCSS for CSS.
+- **Minification**: esbuild for JS and LightningCSS for CSS. Pass `--closure` to additionally run Google Closure Compiler (advanced optimization) on island bundles — requires installing `google-closure-compiler` and a JVM yourself.
 - **Content Hashing**: Filenames like `style.a1b2c3d4.css`.
 - **CSS Purging**: Removing unused CSS rules based on your HTML content.

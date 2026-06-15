@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import {
 	existsSync,
@@ -136,8 +136,16 @@ const minifyCss = (css) => {
 
 const runClosureCompiler = (inputPath, outputPath) => {
 	try {
-		execSync(
-			`npx google-closure-compiler --js="${inputPath}" --js_output_file="${outputPath}" --compilation_level=ADVANCED --language_out=ES_2020 --create_source_map=%outname%.map`,
+		execFileSync(
+			"npx",
+			[
+				"google-closure-compiler",
+				`--js=${inputPath}`,
+				`--js_output_file=${outputPath}`,
+				"--compilation_level=ADVANCED",
+				"--language_out=ES_2020",
+				"--create_source_map=%outname%.map",
+			],
 			{ stdio: "pipe" },
 		);
 		return true;
@@ -302,7 +310,7 @@ const wrapDocument = (body, meta, scripts, cssLinks) => {
 	const themeColorMeta = `<meta name="theme-color" media="(prefers-color-scheme: light)" content="${escapeHTML(themeColorLight)}"><meta name="theme-color" media="(prefers-color-scheme: dark)" content="${escapeHTML(themeColorDark)}">`;
 	const themeBootstrap =
 		'<script>(()=>{const a=v=>{const t=v==="dark"?"dark":"light";document.documentElement.style.colorScheme=t};try{a(localStorage.getItem("theme"))}catch{a(null)};addEventListener("storage",e=>{if(e.key==="theme")a(e.newValue)})})();</script>';
-	return `<!DOCTYPE html><html lang="${safeLang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="color-scheme" content="dark light">${themeColorMeta}${themeBootstrap}${safeTitle}${cssLinks}${headHtml}</head><body>${body}${scripts}</body></html>`;
+	return `<!DOCTYPE html><html lang="${safeLang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="dark light">${themeColorMeta}${themeBootstrap}${safeTitle}${cssLinks}${headHtml}</head><body>${body}${scripts}</body></html>`;
 };
 
 const resolveCssImportPath = (cssPath, resolveDir) => {
@@ -400,17 +408,27 @@ const cssPlugin = (collector) => ({
 
 const LIVE_RELOAD_PATH = "/__fleax_live";
 const liveReloadScript = `<script>(()=>{const es=new EventSource("${LIVE_RELOAD_PATH}");es.addEventListener("reload",()=>location.reload());es.onerror=()=>{};})();</script>`;
-const shouldWatchSourcePath = (file) =>
-	file.startsWith("src/") ||
-	file.startsWith("pages/") ||
-	file === "tsconfig.json";
-const shouldIgnoreWatchedPath = (file) =>
-	file.startsWith("dist/") ||
-	file.startsWith(".fleax-temp/") ||
-	file === ".fleax-cache.json" ||
-	file.startsWith(".");
+// Watch only the source roots and tsconfig instead of the whole cwd, so we
+// don't wake up on every node_modules/dist/.fleax-temp file event.
+const watchSources = (onChange) => {
+	const watchers = [];
+	for (const root of ["src", "pages"]) {
+		const dir = join(cwd, root);
+		if (existsSync(dir)) {
+			watchers.push(watch(dir, { recursive: true }, () => onChange()));
+		}
+	}
+	const tsconfig = join(cwd, "tsconfig.json");
+	if (existsSync(tsconfig)) watchers.push(watch(tsconfig, () => onChange()));
+	return watchers;
+};
 
-const buildIslands = async (islands, outDir, islandCache) => {
+const buildIslands = async (
+	islands,
+	outDir,
+	islandCache,
+	useClosure = false,
+) => {
 	if (islands.size === 0) {
 		return {
 			paths: new Map(),
@@ -428,13 +446,14 @@ const buildIslands = async (islands, outDir, islandCache) => {
 
 	mkdirSync(join(outDir, "islands"), { recursive: true });
 
-	for (const [src] of islands) {
+	// Islands are independent (distinct output files and cache keys), so they
+	// can be bundled concurrently.
+	const buildOne = async (src) => {
 		const srcPath = resolveIslandSrcPath(src);
 
 		if (!existsSync(srcPath)) {
 			log(`Warning: Island not found: ${srcPath}`);
-			changedSources.add(src);
-			continue;
+			return { src, missing: true };
 		}
 
 		const prev = islandCache[src];
@@ -449,10 +468,12 @@ const buildIslands = async (islands, outDir, islandCache) => {
 				(!prev.cssPath || outputExistsForUrl(outDir, prev.cssPath));
 
 			if (canReuse) {
-				paths.set(src, prev.jsPath);
-				if (prev.cssPath) cssOutputs.set(src, prev.cssPath);
-				nextCache[src] = prev;
-				continue;
+				return {
+					src,
+					jsPath: prev.jsPath,
+					cssPath: prev.cssPath,
+					cacheEntry: prev,
+				};
 			}
 		}
 
@@ -474,7 +495,7 @@ const buildIslands = async (islands, outDir, islandCache) => {
 			footer: {
 				js: `if(_island&&typeof _island.default==="function"){const nodes=document.querySelectorAll('.${islandClassName}');for(const el of nodes){_island.default(el)}}`,
 			},
-			minify: false,
+			minify: isProd,
 			legalComments: isProd ? "none" : "inline",
 			sourcemap: !isProd,
 			platform: "browser",
@@ -482,16 +503,17 @@ const buildIslands = async (islands, outDir, islandCache) => {
 			metafile: true,
 		});
 
+		let cssPath;
 		const cssContent = composeCollectedCss(cssCollector.entries).trim();
 		if (cssContent) {
 			const minified = minifyCss(cssContent);
 			const cssHash = isProd ? `.${hash(minified)}` : "";
 			const cssName = `${baseName}${cssHash}.css`;
 			writeFileSync(join(outDir, "islands", cssName), minified);
-			cssOutputs.set(src, `/islands/${cssName}`);
+			cssPath = `/islands/${cssName}`;
 		}
 
-		if (isProd) {
+		if (isProd && useClosure) {
 			const jsPath = join(outDir, "islands", outName);
 			const tempPath = `${jsPath}.tmp`;
 			runClosureCompiler(jsPath, tempPath);
@@ -511,60 +533,66 @@ const buildIslands = async (islands, outDir, islandCache) => {
 			}
 		}
 
-		paths.set(src, `/islands/${outName}`);
 		log(`  ${src} → islands/${outName}`);
-		changedSources.add(src);
 
 		const depPaths = Object.keys(result.metafile?.inputs || {}).map(
 			(inputPath) => resolveInputPath(inputPath),
 		);
-		for (const cssPath of cssCollector.paths) depPaths.push(cssPath);
+		for (const cssDep of cssCollector.paths) depPaths.push(cssDep);
 		const depHashes = computeDepHashes([...new Set(depPaths)]);
 		const jsPath = `/islands/${outName}`;
-		const cssPath = cssOutputs.get(src);
 
 		if (prev && (prev.jsPath !== jsPath || prev.cssPath !== cssPath)) {
 			removeOutputForUrl(outDir, prev.jsPath);
 			removeOutputForUrl(outDir, prev.cssPath);
 		}
 
-		nextCache[src] = {
-			srcPath,
-			depHashes,
+		return {
+			src,
 			jsPath,
 			cssPath,
+			changed: true,
+			cacheEntry: { srcPath, depHashes, jsPath, cssPath },
 		};
+	};
+
+	const results = await Promise.all([...islands.keys()].map(buildOne));
+
+	for (const result of results) {
+		if (result.missing) {
+			changedSources.add(result.src);
+			continue;
+		}
+		paths.set(result.src, result.jsPath);
+		if (result.cssPath) cssOutputs.set(result.src, result.cssPath);
+		nextCache[result.src] = result.cacheEntry;
+		if (result.changed) changedSources.add(result.src);
 	}
 
 	return { paths, css: cssOutputs, cache: nextCache, changedSources };
 };
 
+const collectPages = (dir, pages) => {
+	for (const entry of readdirSync(dir, { withFileTypes: true })) {
+		const name = entry.name;
+		if (name.startsWith(".")) continue;
+		const full = join(dir, name);
+		if (entry.isDirectory()) {
+			collectPages(full, pages);
+			continue;
+		}
+		if (name.endsWith(".tsx") || name.endsWith(".jsx")) {
+			pages.push(full);
+		}
+	}
+};
+
 const findPages = (dir) => {
 	const pages = [];
-
-	const srcDir = join(dir, "src");
-	if (existsSync(srcDir)) {
-		for (const file of readdirSync(srcDir)) {
-			if (
-				(file.endsWith(".tsx") || file.endsWith(".jsx")) &&
-				!file.startsWith(".fleax-temp")
-			) {
-				pages.push(join(srcDir, file));
-			}
-		}
+	for (const root of ["src", "pages"]) {
+		const rootDir = join(dir, root);
+		if (existsSync(rootDir)) collectPages(rootDir, pages);
 	}
-
-	if (existsSync(join(dir, "pages"))) {
-		for (const file of readdirSync(join(dir, "pages"))) {
-			if (
-				(file.endsWith(".tsx") || file.endsWith(".jsx")) &&
-				!file.startsWith(".fleax-temp")
-			) {
-				pages.push(join(dir, "pages", file));
-			}
-		}
-	}
-
 	return pages;
 };
 
@@ -606,13 +634,27 @@ const processPageFile = async (pagePath) => {
 	return { css: pageCss, tempPath, depHashes };
 };
 
-const getPageRoute = (pagePath) => basename(pagePath, extname(pagePath));
+// Route is the page path relative to its src/ or pages/ root, without the
+// extension, using "/" separators. e.g. src/blog/post.tsx -> "blog/post".
+const getPageRoute = (pagePath) => {
+	let rel = basename(pagePath);
+	for (const root of ["src", "pages"]) {
+		const rootDir = join(cwd, root);
+		if (pagePath === rootDir || pagePath.startsWith(`${rootDir}${sep}`)) {
+			rel = relative(rootDir, pagePath);
+			break;
+		}
+	}
+	const withoutExt = rel.slice(0, rel.length - extname(rel).length);
+	return withoutExt.split(sep).join("/");
+};
 
 const getPageHtmlOutPath = (outDir, pagePath) => {
 	const route = getPageRoute(pagePath);
-	return route === "index"
-		? join(outDir, "index.html")
-		: join(outDir, route, "index.html");
+	const parts = route.split("/");
+	// `index` segments map to the directory's index.html
+	if (parts[parts.length - 1] === "index") parts.pop();
+	return join(outDir, ...parts, "index.html");
 };
 
 const renderPage = async (pagePath) => {
@@ -622,6 +664,11 @@ const renderPage = async (pagePath) => {
 	let module;
 	try {
 		module = await import(pathToFileURL(tempPath).href);
+	} catch (e) {
+		throw new Error(
+			`Failed to render page ${relative(cwd, pagePath)}: ${e?.message || e}`,
+			{ cause: e },
+		);
 	} finally {
 		try {
 			rmSync(tempPath);
@@ -645,194 +692,201 @@ const renderPage = async (pagePath) => {
 	};
 };
 
-const build = async ({ purge } = {}) => {
-	const outDir = join(cwd, "dist");
-	mkdirSync(outDir, { recursive: true });
-	const fleaxConfig = loadFleaxConfig();
-	const shouldPurge = typeof purge === "boolean" ? purge : isProd;
-	const profile = {
-		purge: shouldPurge,
-		classKeepHash: classKeepHash(fleaxConfig.classKeep),
-	};
-
-	const pageFiles = findPages(cwd);
-
-	if (pageFiles.length === 0) {
-		log(
-			"No pages found. Create page.tsx or pages/*.tsx with `export default`.",
-		);
-		return;
-	}
-
-	const cache = loadCache(profile);
-	const prevPages = cache.pages || {};
-	const prevIslands = cache.islands || {};
-	const nextPages = {};
-	const renderedPages = new Map();
-	const islandSourcesByPage = new Map();
-	const unchangedPagePaths = [];
-	const pageSet = new Set(pageFiles);
-	const allIslands = new Map();
-
-	for (const oldPagePath of Object.keys(prevPages)) {
-		if (!pageSet.has(oldPagePath)) {
-			removeOutputForUrl(outDir, prevPages[oldPagePath].cssPath);
-			if (
-				prevPages[oldPagePath].htmlPath &&
-				existsSync(prevPages[oldPagePath].htmlPath)
-			) {
-				rmSync(prevPages[oldPagePath].htmlPath);
-			}
-		}
-	}
-
-	for (const pagePath of pageFiles) {
-		const prevPage = prevPages[pagePath];
-		let sourceChanged = true;
-
-		if (prevPage?.depHashes) {
-			const currentDepHashes = {};
-			for (const depPath of Object.keys(prevPage.depHashes)) {
-				currentDepHashes[depPath] = hashFile(depPath);
-			}
-			sourceChanged = !depHashesEqual(prevPage.depHashes, currentDepHashes);
-		}
-
-		if (sourceChanged) {
-			const page = await renderPage(pagePath);
-			if (!page) continue;
-			renderedPages.set(pagePath, page);
-			const islandSources = Array.from(page.islands.keys());
-			islandSourcesByPage.set(pagePath, islandSources);
-			for (const [src, data] of page.islands) allIslands.set(src, data);
-		} else {
-			const islandSources = prevPage.islandSources || [];
-			islandSourcesByPage.set(pagePath, islandSources);
-			for (const src of islandSources) {
-				allIslands.set(src, { originalSrc: src, resolvedPath: src });
-			}
-			unchangedPagePaths.push(pagePath);
-		}
-	}
-
-	for (const oldSrc of Object.keys(prevIslands)) {
-		if (!allIslands.has(oldSrc)) {
-			removeOutputForUrl(outDir, prevIslands[oldSrc].jsPath);
-			removeOutputForUrl(outDir, prevIslands[oldSrc].cssPath);
-		}
-	}
-
-	log(`Building ${allIslands.size} islands...`);
-	const {
-		paths: islandPaths,
-		css: islandCss,
-		cache: nextIslands,
-		changedSources,
-	} = await buildIslands(allIslands, outDir, prevIslands);
-
-	const pagesToWrite = new Set(renderedPages.keys());
-	for (const pagePath of unchangedPagePaths) {
-		const prevPage = prevPages[pagePath];
-		const islandSources = islandSourcesByPage.get(pagePath) || [];
-		const islandChanged = islandSources.some((src) => changedSources.has(src));
-		const htmlPath = prevPage?.htmlPath || getPageHtmlOutPath(outDir, pagePath);
-		const hasCssOutput =
-			!prevPage?.cssPath || outputExistsForUrl(outDir, prevPage.cssPath);
-		const hasHtmlOutput = existsSync(htmlPath);
-
-		if (islandChanged || !hasHtmlOutput || !hasCssOutput) {
-			pagesToWrite.add(pagePath);
-		} else {
-			nextPages[pagePath] = prevPage;
-		}
-	}
-
-	for (const pagePath of pagesToWrite) {
-		if (!renderedPages.has(pagePath)) {
-			const page = await renderPage(pagePath);
-			if (!page) continue;
-			renderedPages.set(pagePath, page);
-			islandSourcesByPage.set(pagePath, Array.from(page.islands.keys()));
-		}
-
-		const page = renderedPages.get(pagePath);
-		const prevPage = prevPages[pagePath];
-
-		let scripts = "";
-		let cssLinks = "";
-
-		for (const [src] of page.islands) {
-			const path = islandPaths.get(src);
-			if (path) scripts += `<script src="${path}"></script>`;
-			const css = islandCss.get(src);
-			if (css) cssLinks += `<link rel="stylesheet" href="${css}">`;
-		}
-
-		let cssPath;
-		if (page.css) {
-			const usedClasses = extractClassesFromHtml(page.html || "");
-			const minified = optimizeCss(page.css, {
-				purge: shouldPurge,
-				usedClasses,
-				classKeep: fleaxConfig.classKeep,
-				filename: page.path,
-			});
-			const route = getPageRoute(page.path);
-			const pageCssHash = isProd ? `.${hash(minified)}` : "";
-			const pageCssName = `${route}${pageCssHash}.css`;
-			writeFileSync(join(outDir, pageCssName), minified);
-			cssPath = `/${pageCssName}`;
-			cssLinks = `<link rel="stylesheet" href="${cssPath}">${cssLinks}`;
-		}
-
-		if (prevPage?.cssPath && prevPage.cssPath !== cssPath) {
-			removeOutputForUrl(outDir, prevPage.cssPath);
-		}
-
-		const html = wrapDocument(page.html, page.meta || {}, scripts, cssLinks);
-		const outPath = getPageHtmlOutPath(outDir, page.path);
-		mkdirSync(dirname(outPath), { recursive: true });
-		writeFileSync(outPath, html);
-		log(`Built: ${relative(cwd, outPath)}`);
-
-		nextPages[pagePath] = {
-			depHashes: page.depHashes,
-			islandSources: Array.from(page.islands.keys()),
-			htmlPath: outPath,
-			cssPath,
+const build = async ({ purge, closure } = {}) => {
+	try {
+		const outDir = join(cwd, "dist");
+		mkdirSync(outDir, { recursive: true });
+		const fleaxConfig = loadFleaxConfig();
+		const shouldPurge = typeof purge === "boolean" ? purge : isProd;
+		const profile = {
+			purge: shouldPurge,
+			classKeepHash: classKeepHash(fleaxConfig.classKeep),
 		};
+
+		const pageFiles = findPages(cwd);
+
+		if (pageFiles.length === 0) {
+			log(
+				"No pages found. Create page.tsx or pages/*.tsx with `export default`.",
+			);
+			return;
+		}
+
+		const cache = loadCache(profile);
+		const prevPages = cache.pages || {};
+		const prevIslands = cache.islands || {};
+		const nextPages = {};
+		const renderedPages = new Map();
+		const islandSourcesByPage = new Map();
+		const unchangedPagePaths = [];
+		const pageSet = new Set(pageFiles);
+		const allIslands = new Map();
+
+		for (const oldPagePath of Object.keys(prevPages)) {
+			if (!pageSet.has(oldPagePath)) {
+				removeOutputForUrl(outDir, prevPages[oldPagePath].cssPath);
+				if (
+					prevPages[oldPagePath].htmlPath &&
+					existsSync(prevPages[oldPagePath].htmlPath)
+				) {
+					rmSync(prevPages[oldPagePath].htmlPath);
+				}
+			}
+		}
+
+		for (const pagePath of pageFiles) {
+			const prevPage = prevPages[pagePath];
+			let sourceChanged = true;
+
+			if (prevPage?.depHashes) {
+				const currentDepHashes = {};
+				for (const depPath of Object.keys(prevPage.depHashes)) {
+					currentDepHashes[depPath] = hashFile(depPath);
+				}
+				sourceChanged = !depHashesEqual(prevPage.depHashes, currentDepHashes);
+			}
+
+			if (sourceChanged) {
+				const page = await renderPage(pagePath);
+				if (!page) continue;
+				renderedPages.set(pagePath, page);
+				const islandSources = Array.from(page.islands.keys());
+				islandSourcesByPage.set(pagePath, islandSources);
+				for (const [src, data] of page.islands) allIslands.set(src, data);
+			} else {
+				const islandSources = prevPage.islandSources || [];
+				islandSourcesByPage.set(pagePath, islandSources);
+				for (const src of islandSources) {
+					allIslands.set(src, { originalSrc: src, resolvedPath: src });
+				}
+				unchangedPagePaths.push(pagePath);
+			}
+		}
+
+		for (const oldSrc of Object.keys(prevIslands)) {
+			if (!allIslands.has(oldSrc)) {
+				removeOutputForUrl(outDir, prevIslands[oldSrc].jsPath);
+				removeOutputForUrl(outDir, prevIslands[oldSrc].cssPath);
+			}
+		}
+
+		log(`Building ${allIslands.size} islands...`);
+		const {
+			paths: islandPaths,
+			css: islandCss,
+			cache: nextIslands,
+			changedSources,
+		} = await buildIslands(allIslands, outDir, prevIslands, closure);
+
+		const pagesToWrite = new Set(renderedPages.keys());
+		for (const pagePath of unchangedPagePaths) {
+			const prevPage = prevPages[pagePath];
+			const islandSources = islandSourcesByPage.get(pagePath) || [];
+			const islandChanged = islandSources.some((src) =>
+				changedSources.has(src),
+			);
+			const htmlPath =
+				prevPage?.htmlPath || getPageHtmlOutPath(outDir, pagePath);
+			const hasCssOutput =
+				!prevPage?.cssPath || outputExistsForUrl(outDir, prevPage.cssPath);
+			const hasHtmlOutput = existsSync(htmlPath);
+
+			if (islandChanged || !hasHtmlOutput || !hasCssOutput) {
+				pagesToWrite.add(pagePath);
+			} else {
+				nextPages[pagePath] = prevPage;
+			}
+		}
+
+		for (const pagePath of pagesToWrite) {
+			if (!renderedPages.has(pagePath)) {
+				const page = await renderPage(pagePath);
+				if (!page) continue;
+				renderedPages.set(pagePath, page);
+				islandSourcesByPage.set(pagePath, Array.from(page.islands.keys()));
+			}
+
+			const page = renderedPages.get(pagePath);
+			const prevPage = prevPages[pagePath];
+
+			let scripts = "";
+			let cssLinks = "";
+
+			for (const [src] of page.islands) {
+				const path = islandPaths.get(src);
+				if (path) scripts += `<script src="${path}"></script>`;
+				const css = islandCss.get(src);
+				if (css) cssLinks += `<link rel="stylesheet" href="${css}">`;
+			}
+
+			let cssPath;
+			if (page.css) {
+				const usedClasses = extractClassesFromHtml(page.html || "");
+				const minified = optimizeCss(page.css, {
+					purge: shouldPurge,
+					usedClasses,
+					classKeep: fleaxConfig.classKeep,
+					filename: page.path,
+				});
+				const route = getPageRoute(page.path);
+				const pageCssHash = isProd ? `.${hash(minified)}` : "";
+				const pageCssName = `${route}${pageCssHash}.css`;
+				const pageCssOutPath = join(outDir, ...pageCssName.split("/"));
+				mkdirSync(dirname(pageCssOutPath), { recursive: true });
+				writeFileSync(pageCssOutPath, minified);
+				cssPath = `/${pageCssName}`;
+				cssLinks = `<link rel="stylesheet" href="${cssPath}">${cssLinks}`;
+			}
+
+			if (prevPage?.cssPath && prevPage.cssPath !== cssPath) {
+				removeOutputForUrl(outDir, prevPage.cssPath);
+			}
+
+			const html = wrapDocument(page.html, page.meta || {}, scripts, cssLinks);
+			const outPath = getPageHtmlOutPath(outDir, page.path);
+			mkdirSync(dirname(outPath), { recursive: true });
+			writeFileSync(outPath, html);
+			log(`Built: ${relative(cwd, outPath)}`);
+
+			nextPages[pagePath] = {
+				depHashes: page.depHashes,
+				islandSources: Array.from(page.islands.keys()),
+				htmlPath: outPath,
+				cssPath,
+			};
+		}
+
+		saveCache({
+			version: CACHE_VERSION,
+			mode: isProd ? "production" : "development",
+			purge: shouldPurge,
+			classKeepHash: profile.classKeepHash,
+			pages: nextPages,
+			islands: nextIslands,
+		});
+
+		log(`Done! (${isProd ? "production" : "development"})`);
+
+		if (isProd) {
+			compressDir(outDir, ".js");
+			compressDir(outDir, ".css");
+			log("Brotli compression complete");
+		}
+	} finally {
+		const tempDir = join(cwd, ".fleax-temp");
+		if (existsSync(tempDir)) rmSync(tempDir, { recursive: true });
 	}
-
-	saveCache({
-		version: CACHE_VERSION,
-		mode: isProd ? "production" : "development",
-		purge: shouldPurge,
-		classKeepHash: profile.classKeepHash,
-		pages: nextPages,
-		islands: nextIslands,
-	});
-
-	log(`Done! (${isProd ? "production" : "development"})`);
-
-	if (isProd) {
-		compressDir(outDir, ".js");
-		compressDir(outDir, ".css");
-		log("Brotli compression complete");
-	}
-
-	const tempDir = join(cwd, ".fleax-temp");
-	if (existsSync(tempDir)) rmSync(tempDir, { recursive: true });
 };
 
-const dev = async ({ purge } = {}) => {
+const dev = async ({ purge, closure } = {}) => {
 	log("Development mode");
 	log("Run `NODE_ENV=production npx fleax build` for production.");
-	await build({ purge });
+	await build({ purge, closure });
 };
 
-const watchMode = async ({ purge } = {}) => {
+const watchMode = async ({ purge, closure } = {}) => {
 	log("Watch mode");
-	await build({ purge });
+	await build({ purge, closure });
 
 	let timer;
 	let building = false;
@@ -848,7 +902,7 @@ const watchMode = async ({ purge } = {}) => {
 
 			building = true;
 			try {
-				await build({ purge });
+				await build({ purge, closure });
 			} catch (e) {
 				log(`Build failed: ${e?.message || e}`);
 			} finally {
@@ -861,17 +915,10 @@ const watchMode = async ({ purge } = {}) => {
 		}, 120);
 	};
 
-	const watcher = watch(cwd, { recursive: true }, (_eventType, fileName) => {
-		const file = String(fileName || "");
-		if (!file) return;
-		if (shouldIgnoreWatchedPath(file)) return;
-		if (shouldWatchSourcePath(file)) {
-			trigger();
-		}
-	});
+	const watchers = watchSources(trigger);
 
 	process.on("SIGINT", () => {
-		watcher.close();
+		for (const watcher of watchers) watcher.close();
 		process.exit(0);
 	});
 };
@@ -945,7 +992,6 @@ const create = async ({ name, includeUi }) => {
 		devDependencies: {
 			tsx: "^4.21.0",
 			typescript: "^5.2.2",
-			"google-closure-compiler": "^20260216.0.0",
 		},
 	};
 	if (withUi) {
@@ -1141,7 +1187,7 @@ const serve = async ({ port = 3000, hot = false, purge } = {}) => {
 	const outDir = join(cwd, "dist");
 	if (!existsSync(outDir)) {
 		if (hot) {
-			await build({ purge });
+			await build({ purge, closure });
 		} else {
 			log("No dist folder. Run `fleax build` first.");
 			process.exit(1);
@@ -1167,7 +1213,7 @@ const serve = async ({ port = 3000, hot = false, purge } = {}) => {
 		notifyReload();
 	});
 
-	let sourceWatcher;
+	let sourceWatchers = [];
 	const dependencyWatchers = [];
 	if (hot) {
 		log("Hot mode enabled");
@@ -1183,7 +1229,7 @@ const serve = async ({ port = 3000, hot = false, purge } = {}) => {
 				}
 				building = true;
 				try {
-					await build({ purge });
+					await build({ purge, closure });
 				} catch (e) {
 					log(`Build failed: ${e?.message || e}`);
 				} finally {
@@ -1196,12 +1242,7 @@ const serve = async ({ port = 3000, hot = false, purge } = {}) => {
 			}, 120);
 		};
 
-		sourceWatcher = watch(cwd, { recursive: true }, (_eventType, fileName) => {
-			const file = String(fileName || "");
-			if (!file) return;
-			if (shouldIgnoreWatchedPath(file)) return;
-			if (shouldWatchSourcePath(file)) triggerBuild();
-		});
+		sourceWatchers = watchSources(triggerBuild);
 
 		const depPaths = [
 			join(cwd, "node_modules", "@fleax", "ui"),
@@ -1311,7 +1352,7 @@ const serve = async ({ port = 3000, hot = false, purge } = {}) => {
 
 	process.on("SIGINT", () => {
 		distWatcher.close();
-		if (sourceWatcher) sourceWatcher.close();
+		for (const watcher of sourceWatchers) watcher.close();
 		for (const watcher of dependencyWatchers) watcher.close();
 		for (const client of liveClients) client.end();
 		server.close(() => process.exit(0));
@@ -1350,18 +1391,21 @@ const parsePurgeFlag = (args) => {
 	return purge;
 };
 
+const parseClosureFlag = (args) => args.includes("--closure");
+
 const purgeFlag = parsePurgeFlag(restArgs);
+const closureFlag = parseClosureFlag(restArgs);
 
 if (cmd === "create") {
 	const createArgs = parseCreateArgs(restArgs);
 	if (!createArgs.name && arg && !arg.startsWith("-")) createArgs.name = arg;
 	create(createArgs);
 } else if (cmd === "dev") {
-	dev({ purge: purgeFlag });
+	dev({ purge: purgeFlag, closure: closureFlag });
 } else if (cmd === "watch") {
-	watchMode({ purge: purgeFlag });
+	watchMode({ purge: purgeFlag, closure: closureFlag });
 } else if (cmd === "build") {
-	build({ purge: purgeFlag });
+	build({ purge: purgeFlag, closure: closureFlag });
 } else if (cmd === "serve") {
 	let port = 3000;
 	let hot = false;
@@ -1373,9 +1417,9 @@ if (cmd === "create") {
 		const parsed = Number.parseInt(token, 10);
 		if (!Number.isNaN(parsed)) port = parsed;
 	}
-	serve({ port, hot, purge: purgeFlag });
+	serve({ port, hot, purge: purgeFlag, closure: closureFlag });
 } else {
 	console.log(
-		"Usage: fleax [create [name] [--ui|--no-ui]|build|dev|watch|serve [port] [--hot]] [--purge|--no-purge]",
+		"Usage: fleax [create [name] [--ui|--no-ui]|build|dev|watch|serve [port] [--hot]] [--purge|--no-purge] [--closure]",
 	);
 }

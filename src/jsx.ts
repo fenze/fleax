@@ -20,6 +20,27 @@ export const Fragment: unique symbol = Symbol.for(
 	"@fleax/core.Fragment",
 ) as typeof Fragment;
 
+export const RawHtml: unique symbol = Symbol.for(
+	"@fleax/core.RawHtml",
+) as typeof RawHtml;
+
+/**
+ * Renders its content as raw, unescaped HTML. Useful for injecting
+ * pre-rendered markup such as Markdown output.
+ *
+ * ```tsx
+ * <Raw html={markdownToHtml(post)} />
+ * // or
+ * <Raw>{trustedHtmlString}</Raw>
+ * ```
+ *
+ * The content is emitted verbatim, so only pass HTML you trust.
+ */
+export const Raw = (props: { html?: string; children?: unknown }): VNode => ({
+	type: RawHtml,
+	props,
+});
+
 declare global {
 	namespace JSX {
 		type Element = VNode;
@@ -102,16 +123,20 @@ declare global {
 			translate?: "yes" | "no";
 			virtualkeyboardpolicy?: "auto" | "manual" | string;
 			writingsuggestions?: boolean | "true" | "false";
-			onclick?: string | ((e: MouseEvent) => void);
-			onchange?: string | ((e: Event) => void);
-			oninput?: string | ((e: Event) => void);
-			onsubmit?: string | ((e: Event) => void);
-			onkeydown?: string | ((e: KeyboardEvent) => void);
-			onkeyup?: string | ((e: KeyboardEvent) => void);
-			onfocus?: string | ((e: FocusEvent) => void);
-			onblur?: string | ((e: FocusEvent) => void);
+			// Event handlers are server-rendered to HTML attributes, so they
+			// must be strings (e.g. onclick="..."). For real interactivity use
+			// an <Island>. Function handlers cannot be serialized and are
+			// intentionally not allowed here.
+			onclick?: string;
+			onchange?: string;
+			oninput?: string;
+			onsubmit?: string;
+			onkeydown?: string;
+			onkeyup?: string;
+			onfocus?: string;
+			onblur?: string;
 			"data-*"?: string;
-			[key: `on${string}`]: string | ((e: any) => void) | undefined;
+			[key: `on${string}`]: string | undefined;
 			[key: `data-${string}`]: string | number | boolean | undefined;
 			[key: `aria-${string}`]: string | number | boolean | undefined;
 		}

@@ -124,15 +124,36 @@ npx fleax serve [port] --hot    # Serve + watch + auto-reload browser
 npx fleax dev                   # One-shot development build
 ```
 
-The CLI finds pages in:
-- `src/*.tsx` / `src/*.jsx`
-- `pages/*.tsx` / `pages/*.jsx`
+## Private Playground
+
+This repository now includes a private local playground at `playground/` for quickly testing
+`@fleax/ui` components with hot reload.
+
+```bash
+npm run playground:install  # one-time: install playground dependencies
+npm run playground         # start Fleax on http://localhost:4173 with --hot reload
+```
+
+Edit files in `playground/src` and you will see updates in near real time.
+
+The CLI finds pages recursively in `src/` and `pages/` (`.tsx` / `.jsx`).
+Nested folders become nested routes:
+
+| Page file | Route | Output |
+| --- | --- | --- |
+| `src/index.tsx` | `/` | `dist/index.html` |
+| `src/about.tsx` | `/about` | `dist/about/index.html` |
+| `src/blog/index.tsx` | `/blog` | `dist/blog/index.html` |
+| `src/blog/post.tsx` | `/blog/post` | `dist/blog/post/index.html` |
+
+Keep island files as `.ts` (not `.tsx`) so they aren't picked up as pages.
 
 ## API
 
 ```ts
 import { 
   Island,         // Island component
+  Raw,            // Render raw, unescaped HTML
   Fragment,       // JSX Fragment
   jsx, jsxs,      // JSX runtime
   renderToString, // Render VNode to HTML
@@ -173,6 +194,20 @@ import "@fleax/ui/styles.css";
 
 Renders a wrapper `<div class="__...">` around children. The island file's default export receives this element.
 All matching wrappers for the same island source are hydrated.
+
+### Raw HTML
+
+Inject pre-rendered, unescaped markup (e.g. Markdown output):
+
+```tsx
+import { Raw } from "@fleax/core";
+
+<Raw html={markdownToHtml(post)} />
+// or pass a trusted string as children
+<Raw>{trustedHtmlString}</Raw>
+```
+
+Content is emitted verbatim, so only pass HTML you trust.
 
 ### Page Meta
 

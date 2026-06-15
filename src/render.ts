@@ -1,4 +1,4 @@
-import { Fragment, type VNode } from "./jsx.js";
+import { Fragment, RawHtml, type VNode } from "./jsx.js";
 
 const escapeHTML = (s: unknown) =>
 	String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -13,6 +13,11 @@ export const renderToString = (node: unknown, isRaw = false): string => {
 	const { type, props } = node as VNode;
 	if (type === Fragment)
 		return renderToString((props as { children: unknown }).children, isRaw);
+	if (type === RawHtml) {
+		const { html, children } = props as { html?: unknown; children?: unknown };
+		if (html != null) return String(html);
+		return renderToString(children, true);
+	}
 	if (typeof type === "function") return renderToString(type(props), isRaw);
 
 	const { children, ...rest } = (props || {}) as { children?: unknown };
