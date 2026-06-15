@@ -19,11 +19,11 @@ Improvements from the framework review, ordered by impact.
 - [x] **Shell-injection shape in Closure invocation** (`bin/cli.js:139`): interpolated paths in `execSync`. Switch to `execFileSync` with an args array. — _Done: `runClosureCompiler` uses `execFileSync("npx", [...args])`._
 - [x] **Scope file watchers.** Recursive `watch(cwd)` (`bin/cli.js:864`, `bin/cli.js:1199`) fires on every `node_modules` change and filters in JS. Watch `src/`, `pages/`, and `tsconfig.json` directly. — _Done: new `watchSources` helper watches only the source roots + `tsconfig.json`; used by `watch` and hot `serve`._
 - [x] **Clean temp dir on crash.** `.fleax-temp` is only removed after a successful build (`bin/cli.js:823`); a thrown page leaves it behind. Remove it in a `finally`. — _Done: `build` wraps its body in try/finally and removes `.fleax-temp` in the finally._
-- [x] **Parallelize builds.** Pages and islands build in `await` loops (`bin/cli.js:701`, `bin/cli.js:431`). Use `Promise.all` for larger sites. — _Done for islands: `buildIslands` now bundles concurrently via `Promise.all`. Pages stay sequential on purpose — `renderPage` relies on the module-global island registry (`resetIslands`/`getIslands`), which would race under concurrency. Parallelizing pages requires removing that global state first._
+- [x] **Parallelize builds.** Pages and islands build in `await` loops (`bin/cli.js:701`, `bin/cli.js:431`). Use `Promise.all` for larger sites. — _Done: islands bundle concurrently, and pages now render concurrently too (see the island-registry refactor below)._
 - [x] **Per-page error context.** A page module throwing during `import()` (`bin/cli.js:624`) crashes a plain `build` without naming the page. Wrap and report `pagePath`. — _Done: `renderPage` rethrows as `Failed to render page <path>: <msg>` with the original error as `cause`._
 - [x] **Viewport meta** omits `initial-scale=1` (`bin/cli.js:305`). — _Done: now `width=device-width, initial-scale=1`._
 
-## Follow-up (not yet done)
+## Follow-up
 
-- **Parallelize page rendering** — blocked on the global island registry in `src/island.ts`. Refactor `Island`/`getIslands` to thread a per-render collector instead of module-level state, then pages can build concurrently too.
+- [x] **Parallelize page rendering** — was blocked on the global island registry in `src/island.ts`. — _Done: replaced the module-global `islandRegistry` + `resetIslands`/`getIslands` (which spanned the `await import()` boundary) with a synchronously-scoped `collectIslands(render)`. Since `renderToString` never yields, concurrent page renders each see their own registry. Pages now render via `Promise.all` in both build passes._
 

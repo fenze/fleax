@@ -28,10 +28,9 @@ import { pathToFileURL } from "node:url";
 import brotli from "brotli";
 import * as lightningcss from "lightningcss";
 import {
+	collectIslands,
 	getIslandClassName,
-	getIslands,
 	renderToString,
-	resetIslands,
 } from "../dist/index.js";
 
 const isProd = process.env.NODE_ENV === "production";
@@ -658,7 +657,6 @@ const getPageHtmlOutPath = (outDir, pagePath) => {
 };
 
 const renderPage = async (pagePath) => {
-	resetIslands();
 	const { css: pageCss, tempPath, depHashes } = await processPageFile(pagePath);
 
 	let module;
@@ -682,11 +680,15 @@ const renderPage = async (pagePath) => {
 		return null;
 	}
 
+	const { result: html, islands } = collectIslands(() =>
+		renderToString(component),
+	);
+
 	return {
 		path: pagePath,
-		html: renderToString(component),
+		html,
 		meta,
-		islands: getIslands(),
+		islands,
 		css: pageCss,
 		depHashes,
 	};
@@ -734,6 +736,7 @@ const build = async ({ purge, closure } = {}) => {
 			}
 		}
 
+		const changedPagePaths = [];
 		for (const pagePath of pageFiles) {
 			const prevPage = prevPages[pagePath];
 			let sourceChanged = true;
@@ -747,12 +750,7 @@ const build = async ({ purge, closure } = {}) => {
 			}
 
 			if (sourceChanged) {
-				const page = await renderPage(pagePath);
-				if (!page) continue;
-				renderedPages.set(pagePath, page);
-				const islandSources = Array.from(page.islands.keys());
-				islandSourcesByPage.set(pagePath, islandSources);
-				for (const [src, data] of page.islands) allIslands.set(src, data);
+				changedPagePaths.push(pagePath);
 			} else {
 				const islandSources = prevPage.islandSources || [];
 				islandSourcesByPage.set(pagePath, islandSources);
@@ -761,6 +759,15 @@ const build = async ({ purge, closure } = {}) => {
 				}
 				unchangedPagePaths.push(pagePath);
 			}
+		}
+
+		const rendered = await Promise.all(changedPagePaths.map(renderPage));
+		for (const page of rendered) {
+			if (!page) continue;
+			renderedPages.set(page.path, page);
+			const islandSources = Array.from(page.islands.keys());
+			islandSourcesByPage.set(page.path, islandSources);
+			for (const [src, data] of page.islands) allIslands.set(src, data);
 		}
 
 		for (const oldSrc of Object.keys(prevIslands)) {
@@ -798,15 +805,19 @@ const build = async ({ purge, closure } = {}) => {
 			}
 		}
 
-		for (const pagePath of pagesToWrite) {
-			if (!renderedPages.has(pagePath)) {
-				const page = await renderPage(pagePath);
-				if (!page) continue;
-				renderedPages.set(pagePath, page);
-				islandSourcesByPage.set(pagePath, Array.from(page.islands.keys()));
-			}
+		const missingRenders = [...pagesToWrite].filter(
+			(pagePath) => !renderedPages.has(pagePath),
+		);
+		const reRendered = await Promise.all(missingRenders.map(renderPage));
+		for (const page of reRendered) {
+			if (!page) continue;
+			renderedPages.set(page.path, page);
+			islandSourcesByPage.set(page.path, Array.from(page.islands.keys()));
+		}
 
+		for (const pagePath of pagesToWrite) {
 			const page = renderedPages.get(pagePath);
+			if (!page) continue;
 			const prevPage = prevPages[pagePath];
 
 			let scripts = "";

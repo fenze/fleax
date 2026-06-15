@@ -11,7 +11,10 @@ type IslandEntry = {
 	resolvedPath: string;
 };
 
-const islandRegistry = new Map<string, IslandEntry>();
+// The registry is scoped to a single synchronous render via `collectIslands`.
+// `renderToString` never yields, so concurrent page renders (which only
+// interleave at await points, never mid-render) each see their own registry.
+let activeRegistry: Map<string, IslandEntry> | null = null;
 
 const hashString = (value: string) => {
 	let h = 2166136261;
@@ -24,16 +27,29 @@ const hashString = (value: string) => {
 
 export const getIslandClassName = (src: string) => `__${hashString(src)}`;
 
-export const resetIslands = () => {
-	islandRegistry.clear();
+/**
+ * Runs `render` with a fresh island registry and returns both its result and
+ * the islands registered during that render. Supports nesting; the previous
+ * registry (if any) is restored afterwards.
+ */
+export const collectIslands = <T>(
+	render: () => T,
+): { result: T; islands: Map<string, IslandEntry> } => {
+	const registry = new Map<string, IslandEntry>();
+	const previous = activeRegistry;
+	activeRegistry = registry;
+	try {
+		const result = render();
+		return { result, islands: registry };
+	} finally {
+		activeRegistry = previous;
+	}
 };
-
-export const getIslands = () => new Map(islandRegistry);
 
 export const Island = ({ src, id, children }: IslandProps): VNode => {
 	const islandClassName = getIslandClassName(src);
 
-	islandRegistry.set(src, {
+	activeRegistry?.set(src, {
 		originalSrc: src,
 		resolvedPath: src,
 	});
